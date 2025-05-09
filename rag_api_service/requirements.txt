@@ -1,0 +1,12 @@
+fastapi
+uvicorn[standard]
+python-dotenv
+requests
+supabase # Required by langchain-supabase & direct client use
+# LangChain core and integrations
+langchain
+langchain-ollama
+# Removed: langchain-postgres
+# Removed: psycopg2-binary 
+# Removed: SQLAlchemy
+langchain-community # Contains community integrations like Supabase 
