@@ -665,6 +665,8 @@ async def search_endpoint(request: ChatQueryRequest): # Uses limit from request
 # --- Main Block (for running with uvicorn if desired, e.g., python main.py) ---
 if __name__ == "__main__":
     import uvicorn
-    # Default port for RAG API service, can be configured via env var if needed
-    rag_api_port = int(os.getenv("RAG_API_PORT", 8002))
-    uvicorn.run("main:app", host="0.0.0.0", port=rag_api_port, reload=True) 
+    port = int(os.getenv("PORT", os.getenv("RAG_API_PORT", 8002)))
+    host = "0.0.0.0" # Listen on all interfaces for App Platform
+    print(f"Starting Uvicorn server on {host}:{port}")
+    uvicorn.run("main:app", host=host, port=port, reload=False) # reload=False for production
+            

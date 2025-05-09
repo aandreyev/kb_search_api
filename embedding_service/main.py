@@ -96,15 +96,9 @@ async def get_embedding(request: EmbeddingRequest):
 # --- Main Block (for running with uvicorn) ---
 if __name__ == "__main__":
     import uvicorn
-    # Use dedicated port variable from .env, default to 8001
-    service_port = int(os.getenv("EMBEDDING_SERVICE_PORT", 8001))
-    # Host defaults to 127.0.0.1 for local running via `python main.py`
-    # Set host to "0.0.0.0" to allow access from other devices on the network
-    service_host = os.getenv("EMBEDDING_SERVICE_HOST", "127.0.0.1") 
+    # App Platform injects PORT, use it. Default for local is still from .env or 8001.
+    port = int(os.getenv("PORT", os.getenv("EMBEDDING_SERVICE_PORT", 8001)))
+    host = os.getenv("EMBEDDING_SERVICE_HOST", "0.0.0.0") # Listen on all interfaces for App Platform
+    print(f"Starting Uvicorn server on {host}:{port}")
+    uvicorn.run("main:app", host=host, port=port, reload=False) # reload=False for production
 
-    # The parsing logic for EMBEDDING_SERVICE_URL is less relevant now 
-    # if we run directly using `python main.py`, as we use the dedicated port/host vars.
-    # It's still useful for the client (rag_api_service) to know the full URL.
-
-    print(f"Starting Uvicorn server on {service_host}:{service_port}")
-    uvicorn.run("main:app", host=service_host, port=service_port, reload=True) # Use reload=True for development 
