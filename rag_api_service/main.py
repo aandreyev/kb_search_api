@@ -39,6 +39,7 @@ global_config = {}
 # --- Pydantic Models for API ---
 class ChatQueryRequest(BaseModel):
     query: str
+    limit: Optional[int] = 10 # Default limit for results
     # conversation_id: str | None = None # Optional for future history
 
 class ChunkSnippet(BaseModel):
@@ -225,8 +226,15 @@ Answer:"""
             return "\n\n".join(doc.page_content for doc in docs)
 
         # Function to perform manual retrieval via RPC
-        def retrieve_documents(query: str) -> list[Document]:
-            print("Manually retrieving documents via RPC...")
+        def retrieve_documents(query_input: dict) -> list[Document]: # Takes a dict now to get query and limit
+            query = query_input["query"]
+            # Get limit from query_input if provided, else use a default from config or hardcoded
+            # For now, let's assume the RAG chain itself might not pass a limit directly through RunnablePassthrough() this way
+            # So, we might use a default. Or, if using for /search, it would be passed.
+            # Let's use a default for now, can be refined.
+            retrieval_limit = query_input.get("limit", global_config.get("search_limit_rag_default", 5))
+
+            print(f"Manually retrieving top {retrieval_limit} documents via RPC for query: '{query[:50]}...'")
             if not global_supabase_client:
                  print("ERROR: Supabase client not available for retrieval.")
                  return [] # Or raise an error
@@ -236,8 +244,8 @@ Answer:"""
 
                 # 2. Call the RPC function directly
                 rpc_params = {
-                    'query_embedding': query_embedding
-                    # Threshold and Count are handled inside the SQL function now
+                    'query_embedding': query_embedding,
+                    'match_count': retrieval_limit # Pass the limit to the SQL function
                 }
                 match_response = global_supabase_client.rpc(
                     'match_chunks_for_rag',
@@ -277,10 +285,10 @@ Answer:"""
 
         # Define the chain using the manual retrieval function
         rag_processing = RunnableParallel(
-            # Pass the raw question to retrieve_documents, then format the result
+            # Pass the raw question dict to retrieve_documents, then format the result
             context=(RunnablePassthrough() | retrieve_documents | format_docs),
-            question=RunnablePassthrough(),
-            # Pass the raw question to retrieve_documents again to get the source Document objects
+            question=RunnablePassthrough(lambda x: x["query"]), # Extract query string for prompt
+            # Pass the raw question dict to retrieve_documents again to get the source Document objects
             source_documents=(RunnablePassthrough() | retrieve_documents)
         )
 
@@ -333,10 +341,10 @@ async def chat_endpoint(request: ChatQueryRequest):
     if not global_rag_chain:
         raise HTTPException(status_code=503, detail="RAG service not initialized. Please check server logs.")
     
-    print(f"Received query for RAG API: {request.query[:100]}...")
+    print(f"Received query for RAG API: {request.query[:100]}... Retrieval Limit: {request.limit}")
     try:
         # Chain now returns dict including source_documents with proper metadata
-        result = global_rag_chain.invoke(request.query)
+        result = global_rag_chain.invoke({"query": request.query, "limit": request.limit})
         answer_str = result.get("answer") 
         source_docs_lc = result.get("source_documents") # LangChain Document objects
 
@@ -484,24 +492,19 @@ async def preview_pdf_endpoint(url: str): # url will be the Supabase public_url
         raise HTTPException(status_code=500, detail="Error processing PDF preview")
 
 @app.post("/search", response_model=SearchQueryResponse)
-async def search_endpoint(request: ChatQueryRequest): # Using ChatQueryRequest for input consistency
-    print(f"Received query for Search API: {request.query[:100]}...")
+async def search_endpoint(request: ChatQueryRequest): # Uses limit from request
+    print(f"Received query for Search API: {request.query[:100]}... Limit: {request.limit}")
     
-    # Use the existing retrieve_documents function (defined in lifespan)
-    # This function needs to be accessible or redefined here if not global.
-    # For simplicity, assuming it's accessible via a mechanism (e.g. app state or re-init)
-    # If retrieve_documents is only defined in lifespan, this won't work directly.
-    # Let's redefine a simplified retrieval for this endpoint for clarity.
-
     retrieved_docs_lc = []
     try:
         # 1. Embed the query using our custom class
         embeddings = ApiEmbeddings(global_config["embedding_service_url"], global_config["pgvector_dimension"])
         query_embedding = embeddings.embed_query(request.query)
 
-        # 2. Call the RPC function directly (match_chunks_for_rag is fine for this too)
+        # 2. Call the RPC function directly
         rpc_params = {
-            'query_embedding': query_embedding
+            'query_embedding': query_embedding,
+            'match_count': request.limit # Use limit from request
         }
         if not global_supabase_client:
              raise RuntimeError("Supabase client not initialized for search endpoint.")

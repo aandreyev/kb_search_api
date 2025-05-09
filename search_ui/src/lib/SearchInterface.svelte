@@ -15,6 +15,12 @@
     // This could also come from an environment variable in a more complex app
     const RAG_API_URL = 'http://127.0.0.1:8002'; // Default port for rag_api_service
 
+    // Pagination state
+    let currentPage: number = 1;
+    const resultsPerPage: number = 5; // Show 5 documents per page
+    let totalResults: number = 0; // Will be set by API if we get total count
+    let currentApiLimit: number = 20; // How many results to fetch from API initially (can be more than resultsPerPage)
+
     interface ChunkSnippetData {
         content: string;
         similarity: number;
@@ -48,26 +54,43 @@
     //     }
     // });
 
-    async function performSearch() {
+    // Interface for API response (if it changes to include total)
+    interface ApiSearchResponse {
+        query: string;
+        results: SourceDoc[];
+        total_available_results?: number; // Optional: if API can tell us total matches
+        error?: string | null;
+    }
+
+    async function performSearch(page: number = 1) {
         if (!query.trim()) {
             errorMessage = 'Please enter a search query.';
             results = [];
+            totalResults = 0;
+            currentPage = 1;
             return;
         }
 
         isLoading = true;
         errorMessage = null;
-        results = [];
+        // results = []; // Don't clear results immediately if paginating, unless it's a new search
+        if (page === 1) {
+            results = []; // Clear for a new search (first page)
+            totalResults = 0;
+        }
+        currentPage = page;
 
         try {
-            // Choose between /search or /chat endpoint
-            // For now, let's use /search which returns structured documents directly
+            // We'll fetch a larger batch from API (currentApiLimit) 
+            // and then paginate client-side for now. 
+            // True server-side pagination would require API to accept offset/page.
             const response = await fetch(`${RAG_API_URL}/search`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ query: query }),
+                // Send the increased limit to the API
+                body: JSON.stringify({ query: query, limit: currentApiLimit }), 
             });
 
             if (!response.ok) {
@@ -75,29 +98,62 @@
                 throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
             }
 
-            const data = await response.json();
+            const data: ApiSearchResponse = await response.json(); // Use new interface
             
             if (data.error) {
                 errorMessage = data.error;
+                results = [];
             } else if (data.results && data.results.length > 0) {
-                results = data.results;
+                // For now, assume API returns all requested (up to currentApiLimit)
+                // and we do client-side pagination on this set.
+                results = data.results; 
+                totalResults = results.length; // If API doesn't give total, use length of returned set
+                if (data.total_available_results) { // If API gives total for actual matches
+                    // totalResults = data.total_available_results;
+                    // This is complex if API limit is less than actual total.
+                    // For now, our client-side pagination is on the `currentApiLimit` results.
+                }
+                 if (results.length === 0 && page === 1) {
+                    errorMessage = "No documents found matching your query.";
+                }
             } else {
-                results = []; // No results found
-                errorMessage = "No documents found matching your query.";
+                results = []; 
+                totalResults = 0;
+                if (page === 1) errorMessage = "No documents found matching your query.";
             }
 
         } catch (err: any) {
             console.error('Search API call failed:', err);
             errorMessage = err.message || 'Failed to fetch search results. Is the API service running?';
             results = [];
+            totalResults = 0;
         } finally {
             isLoading = false;
         }
     }
 
+    function handleSearchClick() {
+        performSearch(1); // Always go to page 1 for a new manual search
+    }
+
     function handleKeydown(event: KeyboardEvent) {
         if (event.key === 'Enter') {
-            performSearch();
+            handleSearchClick();
+        }
+    }
+
+    // Computed properties for pagination
+    $: totalPages = Math.ceil(totalResults / resultsPerPage);
+    $: paginatedResults = results.slice((currentPage - 1) * resultsPerPage, currentPage * resultsPerPage);
+
+    function goToPage(page: number) {
+        if (page >= 1 && page <= totalPages) {
+            currentPage = page;
+            // If we were doing server-side pagination for each page click:
+            // performSearch(page);
+
+            // Scroll to the top of the page
+            window.scrollTo({ top: 0, behavior: 'smooth' }); // Use smooth scroll
         }
     }
 
@@ -163,7 +219,7 @@
             disabled={isLoading}
         />
         <button 
-            on:click={performSearch} 
+            on:click={handleSearchClick} 
             class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg shadow-md hover:shadow-lg transition-all duration-150 ease-in-out disabled:opacity-50"
             disabled={isLoading}
         >
@@ -183,9 +239,9 @@
     {/if}
 
     <div class="results-area space-y-6">
-        {#if results.length > 0}
-            <h2 class="text-xl font-semibold mb-4">Results:</h2>
-            {#each results as result, i (result.id)} 
+        {#if paginatedResults.length > 0}
+            <h2 class="text-xl font-semibold mb-4">Results (Page {currentPage} of {totalPages}):</h2>
+            {#each paginatedResults as result, i (result.id)} 
                 <div class="result-item bg-white p-6 rounded-lg shadow-lg border border-gray-200 hover:shadow-xl transition-shadow duration-150 ease-in-out">
                     <h3 class="text-lg font-semibold text-blue-700 mb-2 break-words">
                         {i + 1}. {result.cleaned_filename || result.title || result.original_filename || `Document ID: ${result.id}`}
@@ -276,6 +332,31 @@
             <p class="text-gray-600 text-center py-4">No results to display. Try a new search.</p>
         {/if}
     </div>
+
+    <!-- Pagination Controls -->
+    {#if totalPages > 1}
+        <div class="pagination-controls mt-8 flex justify-center items-center space-x-2">
+            <button 
+                on:click={() => goToPage(currentPage - 1)} 
+                disabled={currentPage === 1 || isLoading}
+                class="px-4 py-2 bg-gray-300 hover:bg-gray-400 text-gray-800 font-medium rounded-md disabled:opacity-50"
+            >
+                Previous
+            </button>
+            
+            <span class="text-gray-700">
+                Page {currentPage} of {totalPages}
+            </span>
+            
+            <button 
+                on:click={() => goToPage(currentPage + 1)} 
+                disabled={currentPage === totalPages || isLoading}
+                class="px-4 py-2 bg-gray-300 hover:bg-gray-400 text-gray-800 font-medium rounded-md disabled:opacity-50"
+            >
+                Next
+            </button>
+        </div>
+    {/if}
 </div>
 
 <!-- Preview Modal -->
