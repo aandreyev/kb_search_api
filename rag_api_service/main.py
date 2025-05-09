@@ -23,6 +23,7 @@ from langchain_core.runnables import RunnablePassthrough, RunnableParallel
 from langchain_core.messages import SystemMessage # Removed HumanMessage as template does both
 from langchain_core.documents import Document # Import Document class
 from langchain_ollama.chat_models import ChatOllama
+from langchain_openai import ChatOpenAI # Import ChatOpenAI
 from langchain_community.vectorstores import SupabaseVectorStore # Corrected import
 
 # Attempt to load .env from parent directory, then current directory as fallback for service
@@ -157,8 +158,14 @@ async def lifespan(app: FastAPI):
         "chunks_table": os.getenv("SUPABASE_CHUNKS_TABLE", "document_chunks"),
         "embedding_service_url": os.getenv("EMBEDDING_SERVICE_URL"),
         "pgvector_dimension": int(os.getenv("PGVECTOR_DIMENSION", 1024)),
+        # LLM Provider Configuration
+        "llm_provider": os.getenv("LLM_PROVIDER", "ollama").lower(), # Default to ollama
         "ollama_model": os.getenv("OLLAMA_MODEL", "phi3:mini"),
-        # Removed db_pass and db_host as they are not needed for SupabaseVectorStore
+        # "ollama_base_url": os.getenv("OLLAMA_BASE_URL"), # Optional for Ollama
+        "openai_api_key": os.getenv("OPENAI_API_KEY"),
+        "openai_model_name": os.getenv("OPENAI_MODEL_NAME", "gpt-4"),
+        "db_pass": os.getenv('SUPABASE_DB_PASSWORD'),
+        # Removed db_host as they are not needed for SupabaseVectorStore
     }
     # Updated check to remove db_pass/db_host
     if not all([global_config["supabase_url"], global_config["supabase_key"], 
@@ -166,7 +173,7 @@ async def lifespan(app: FastAPI):
         print("Error: Critical configurations (Supabase URL/Key, Embedding URL) missing.")
         raise RuntimeError("Critical configurations missing.")
 
-    print(f"Using Ollama model: {global_config['ollama_model']}")
+    print(f"Selected LLM Provider: {global_config['llm_provider']}")
 
     # Initialize Supabase client 
     try:
@@ -191,16 +198,44 @@ async def lifespan(app: FastAPI):
         )
         print("SupabaseVectorStore interface initialized using 'match_chunks_for_rag'.")
 
-        # Removed default retriever initialization
-        # retriever = vectorstore.as_retriever(search_kwargs={'k': 5})
-        # print("Retriever initialized.")
+        retriever = vectorstore.as_retriever(search_kwargs={'k': 5})
+        print("Retriever initialized.")
 
-        llm = ChatOllama(model=global_config['ollama_model'])
-        # Add a simple check to see if Ollama is reachable on startup
-        # This might make startup slow if Ollama is down
-        print(f"Checking Ollama model ({global_config['ollama_model']}) availability...")
-        llm.invoke("Hi") # Simple test invoke
-        print(f"Ollama model ({global_config['ollama_model']}) initialized and appears reachable.")
+        # Initialize LLM based on provider
+        llm = None
+        if global_config["llm_provider"] == "ollama":
+            try:
+                llm = ChatOllama(
+                    model=global_config['ollama_model']
+                    # base_url=global_config['ollama_base_url'] # Pass if set
+                )
+                print(f"Checking Ollama model ({global_config['ollama_model']}) availability...")
+                llm.invoke("Hi") # Simple test invoke
+                print(f"Ollama model ({global_config['ollama_model']}) initialized and appears reachable.")
+            except Exception as e:
+                print(f"FATAL: Failed to initialize or connect to Ollama model '{global_config['ollama_model']}': {e}")
+                raise RuntimeError(f"Ollama connection failed: {e}") from e
+        elif global_config["llm_provider"] == "openai":
+            if not global_config["openai_api_key"]:
+                print("FATAL: LLM_PROVIDER is 'openai' but OPENAI_API_KEY is not set.")
+                raise RuntimeError("OPENAI_API_KEY is required for OpenAI LLM.")
+            try:
+                llm = ChatOpenAI(
+                    openai_api_key=global_config["openai_api_key"],
+                    model_name=global_config["openai_model_name"]
+                )
+                print(f"Checking OpenAI model ({global_config['openai_model_name']}) availability...")
+                llm.invoke("Hi") # Simple test invoke
+                print(f"OpenAI model ({global_config['openai_model_name']}) initialized and appears reachable.")
+            except Exception as e:
+                print(f"FATAL: Failed to initialize or connect to OpenAI model '{global_config['openai_model_name']}': {e}")
+                raise RuntimeError(f"OpenAI connection failed: {e}") from e
+        else:
+            print(f"FATAL: Unsupported LLM_PROVIDER: {global_config['llm_provider']}. Supported: ollama, openai")
+            raise RuntimeError(f"Unsupported LLM_PROVIDER: {global_config['llm_provider']}")
+        
+        if llm is None: # Should be caught by earlier raises, but as a safeguard
+            raise RuntimeError("LLM could not be initialized.")
 
         # RAG Prompt (Adapted from chatbot.py)
         system_prompt_text = """You are an intelligent research assistant focused on Australia. 
