@@ -1,6 +1,8 @@
 test-results
 node_modules
 
+.env
+
 # Output
 .output
 .vercel

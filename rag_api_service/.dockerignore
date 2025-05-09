@@ -1,0 +1,5 @@
+    __pycache__/
+    *.pyc
+    *.pyo
+    *.pyd
+    .venv/ # If you ever accidentally create one here

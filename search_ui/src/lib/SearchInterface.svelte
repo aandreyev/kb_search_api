@@ -62,6 +62,11 @@
         error?: string | null;
     }
 
+    // API Endpoints - relative paths, assuming a reverse proxy will route them
+    const API_SEARCH_ENDPOINT = '/api/search'; 
+    const API_CHAT_ENDPOINT = '/api/chat';     // If you add chat functionality back here
+    const API_PREVIEW_PDF_ENDPOINT = '/api/preview-pdf'; // For the PDF proxy
+
     async function performSearch(page: number = 1) {
         if (!query.trim()) {
             errorMessage = 'Please enter a search query.';
@@ -84,7 +89,7 @@
             // We'll fetch a larger batch from API (currentApiLimit) 
             // and then paginate client-side for now. 
             // True server-side pagination would require API to accept offset/page.
-            const response = await fetch(`${RAG_API_URL}/search`, {
+            const response = await fetch(API_SEARCH_ENDPOINT, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -170,9 +175,9 @@
     function openPdfPreview(doc: SourceDoc) {
         if (doc.public_url) {
             previewTitle = doc.cleaned_filename || doc.title || doc.original_filename || "PDF Document";
-            previewUrl = `${RAG_API_URL}/preview-pdf?url=${encodeURIComponent(doc.public_url)}`;
-            previewType = 'pdf';
-            // docxHtmlContent = ""; // No longer needed if not using Mammoth for DOCX
+            // Point iframe to your backend proxy endpoint, now using relative path for consistency
+            previewUrl = `${API_PREVIEW_PDF_ENDPOINT}?url=${encodeURIComponent(doc.public_url)}`;
+            previewType = 'pdf'; 
             showPreviewModal = true;
         } else {
             alert("No public URL available for this document to preview.");
@@ -184,17 +189,12 @@
             alert("No public URL available for this DOCX document to preview.");
             return;
         }
-
         previewTitle = doc.cleaned_filename || doc.title || doc.original_filename || "Word Document";
-        
         const viewerUrl = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(doc.public_url)}`;
         console.log("Using Office Viewer URL for DOCX:", viewerUrl);
-
         previewUrl = viewerUrl;
-        previewType = 'pdf'; // Re-use 'pdf' type for general iframe display
-        // docxHtmlContent = ""; // Not needed
+        previewType = 'pdf'; 
         showPreviewModal = true;
-        // isLoading = false; // isLoading not directly manipulated here now
     }
 
     function closePreviewModal() {
