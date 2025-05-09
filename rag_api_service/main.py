@@ -12,6 +12,8 @@ from pydantic import BaseModel
 from supabase import create_client, Client as SupabaseClient # Rename to avoid confusion
 from sqlalchemy import create_engine
 from fastapi.middleware.cors import CORSMiddleware # Import CORS middleware
+from fastapi.responses import StreamingResponse # Import StreamingResponse
+import io # Import io for BytesIO
 
 # LangChain imports
 from langchain_core.embeddings import Embeddings
@@ -439,6 +441,47 @@ async def chat_endpoint(request: ChatQueryRequest):
 @app.get("/health")
 async def health_check():
     return {"status": "RAG API Service is running", "rag_initialized": global_rag_chain is not None}
+
+@app.get("/preview-pdf")
+async def preview_pdf_endpoint(url: str): # url will be the Supabase public_url
+    if not url:
+        raise HTTPException(status_code=400, detail="Missing PDF URL")
+    
+    print(f"Proxying PDF from URL: {url}")
+    try:
+        # Make the request to the external URL
+        # Using a timeout for robustness
+        pdf_response = requests.get(url, timeout=30, stream=True) # stream=True is good practice
+        pdf_response.raise_for_status() # Raise an exception for bad status codes (4xx or 5xx)
+
+        # For simplicity, load content into BytesIO. For very large files, 
+        # a true async generator with StreamingResponse would be more memory efficient.
+        pdf_content_stream = io.BytesIO(pdf_response.content)
+        
+        # Ensure headers are correctly set for inline display
+        response_headers = {
+            "Content-Disposition": "inline",
+            "Content-Type": "application/pdf" # Explicitly set Content-Type
+        }
+        
+        return StreamingResponse(pdf_content_stream, headers=response_headers, media_type="application/pdf")
+
+    except requests.exceptions.Timeout:
+        print(f"Timeout when fetching PDF from URL ({url})")
+        raise HTTPException(status_code=504, detail="Timeout when fetching PDF from source.")
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching PDF from URL ({url}): {e}")
+        # Check if the error response from Supabase was JSON (e.g., for 404s with details)
+        try:
+            error_detail = e.response.json() if e.response else str(e)
+        except ValueError: # If response is not JSON
+            error_detail = str(e)
+        raise HTTPException(status_code=502, detail=f"Failed to fetch PDF from source: {error_detail}")
+    except Exception as e:
+        print(f"Unexpected error proxying PDF ({url}): {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="Error processing PDF preview")
 
 @app.post("/search", response_model=SearchQueryResponse)
 async def search_endpoint(request: ChatQueryRequest): # Using ChatQueryRequest for input consistency

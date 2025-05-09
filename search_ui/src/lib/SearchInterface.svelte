@@ -1,8 +1,15 @@
 <script lang="ts">
+    // import { onMount } from 'svelte'; // Mammoth not needed for this approach
     let query: string = '';
     let results: any[] = []; // Will hold the search results (SourceDocument[])
     let isLoading: boolean = false;
     let errorMessage: string | null = null;
+    let previewUrl: string | null = null;
+    let showPreviewModal: boolean = false;
+    let previewTitle: string = "Document Preview";
+    let previewType: 'pdf' | 'html' | null = null;
+    // let docxHtmlContent: string = ""; // No longer needed if not using Mammoth for DOCX
+    // let mammoth: any = null; // Mammoth not needed
 
     // URL for your RAG API service - adjust if needed
     // This could also come from an environment variable in a more complex app
@@ -30,6 +37,16 @@
         analysis_notes?: string | null;
         snippets?: ChunkSnippetData[] | null;
     }
+
+    // onMount(async () => { // Mammoth not needed
+    //     try {
+    //         const module = await import('mammoth/mammoth.browser');
+    //         mammoth = module; 
+    //         console.log("Mammoth.js loaded successfully.");
+    //     } catch (error) {
+    //         console.error("Failed to load Mammoth.js:", error);
+    //     }
+    // });
 
     async function performSearch() {
         if (!query.trim()) {
@@ -93,6 +110,44 @@
             return dateString; // Return original if parsing fails
         }
     }
+
+    function openPdfPreview(doc: SourceDoc) {
+        if (doc.public_url) {
+            previewTitle = doc.cleaned_filename || doc.title || doc.original_filename || "PDF Document";
+            previewUrl = `${RAG_API_URL}/preview-pdf?url=${encodeURIComponent(doc.public_url)}`;
+            previewType = 'pdf';
+            // docxHtmlContent = ""; // No longer needed if not using Mammoth for DOCX
+            showPreviewModal = true;
+        } else {
+            alert("No public URL available for this document to preview.");
+        }
+    }
+
+    async function openDocxPreview(doc: SourceDoc) {
+        if (!doc.public_url) {
+            alert("No public URL available for this DOCX document to preview.");
+            return;
+        }
+
+        previewTitle = doc.cleaned_filename || doc.title || doc.original_filename || "Word Document";
+        
+        const viewerUrl = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(doc.public_url)}`;
+        console.log("Using Office Viewer URL for DOCX:", viewerUrl);
+
+        previewUrl = viewerUrl;
+        previewType = 'pdf'; // Re-use 'pdf' type for general iframe display
+        // docxHtmlContent = ""; // Not needed
+        showPreviewModal = true;
+        // isLoading = false; // isLoading not directly manipulated here now
+    }
+
+    function closePreviewModal() {
+        showPreviewModal = false;
+        previewUrl = null;
+        previewType = null;
+        // docxHtmlContent = ""; // Not needed
+    }
+
 </script>
 
 <div class="container mx-auto p-4 max-w-3xl">
@@ -188,16 +243,33 @@
                         {/if}
                     </div>
                     
-                    {#if result.public_url}
-                        <a 
-                            href={result.public_url} 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            class="inline-block bg-green-500 hover:bg-green-600 text-white font-semibold py-2 px-4 rounded-md shadow hover:shadow-md transition-colors duration-150 ease-in-out text-sm"
-                        >
-                            Download/View Document
-                        </a>
-                    {/if}
+                    <div class="actions mt-4 flex space-x-2">
+                        {#if result.public_url}
+                            <a 
+                                href={result.public_url} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                class="inline-block bg-green-500 hover:bg-green-600 text-white font-semibold py-2 px-4 rounded-md shadow hover:shadow-md transition-colors duration-150 ease-in-out text-sm"
+                            >
+                                Download Document
+                            </a>
+                            {#if result.file_type?.toLowerCase() === 'pdf'}
+                                <button 
+                                    on:click={() => openPdfPreview(result)} 
+                                    class="inline-block bg-purple-500 hover:bg-purple-600 text-white font-semibold py-2 px-4 rounded-md shadow hover:shadow-md transition-colors duration-150 ease-in-out text-sm"
+                                >
+                                    Preview PDF
+                                </button>
+                            {:else if result.file_type?.toLowerCase() === 'docx' || result.file_type?.toLowerCase() === 'doc' || result.original_filename?.toLowerCase().endsWith('.docx') || result.original_filename?.toLowerCase().endsWith('.doc')}
+                                <button 
+                                    on:click={() => openDocxPreview(result)} 
+                                    class="inline-block bg-sky-500 hover:bg-sky-600 text-white font-semibold py-2 px-4 rounded-md shadow hover:shadow-md transition-colors duration-150 ease-in-out text-sm"
+                                >
+                                    Preview DOCX (Beta)
+                                </button>
+                            {/if}
+                        {/if}
+                    </div>
                 </div>
             {/each}
         {:else if !isLoading && !errorMessage}
@@ -205,6 +277,34 @@
         {/if}
     </div>
 </div>
+
+<!-- Preview Modal -->
+{#if showPreviewModal}
+    <!-- Close on backdrop click -->
+    <div 
+        class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4"
+        on:click|self={closePreviewModal}
+    >
+        <div class="bg-white p-2 rounded-lg shadow-2xl w-full max-w-4xl h-[90vh] flex flex-col">
+            <div class="flex justify-between items-center p-2 border-b">
+                <h2 class="text-xl font-semibold truncate pr-2" title={previewTitle}>{previewTitle}</h2>
+                <button 
+                    on:click={closePreviewModal} 
+                    class="text-gray-600 hover:text-gray-900 text-2xl font-bold"
+                >&times;</button>
+            </div>
+            <div class="flex-grow overflow-auto p-1 mt-1">
+                {#if previewType === 'pdf' && previewUrl} <!-- Simplified condition -->
+                    <iframe src={previewUrl} class="w-full h-full border-0" title="Document Preview"></iframe>
+                <!-- {:else if previewType === 'html'} Removed Mammoth specific part
+                    <div class="prose max-w-none p-4">{@html docxHtmlContent}</div> -->
+                {:else if !previewUrl && showPreviewModal}
+                    <p class="text-center p-8">Loading preview or no preview available...</p>
+                {/if}
+            </div>
+        </div>
+    </div>
+{/if}
 
 <style>
     /* Basic Tailwind directives if not globally included - SvelteKit usually handles this with app.css or layout */
@@ -228,4 +328,5 @@
         text-overflow: ellipsis;
         margin-top: 0.25rem;
     }
+    /* :global(.prose pre) removed as it was part of the global prose styling */
 </style> 
