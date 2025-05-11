@@ -1,4 +1,10 @@
 <script lang="ts">
+    import { tick } from 'svelte'; // Import tick
+    import { authStore } from './authStore'; // For getting current user
+    import { logActivity, getUserLoggingInfo } from './activityLogger'; // Import logging utils
+    import type { AccountInfo } from '@azure/msal-browser'; // For user type
+    // import type { SourceDoc, ChunkSnippetData } from '../app.d'; // REMOVE THIS LINE - types are local
+    // import { onMount, onDestroy } from 'svelte'; // Not needed if svelte:window is top-level
     // import { onMount } from 'svelte'; // Mammoth not needed for this approach
     let query: string = '';
     let results: any[] = []; // Will hold the search results (SourceDocument[])
@@ -10,10 +16,16 @@
     let previewType: 'pdf' | 'html' | null = null;
     // let docxHtmlContent: string = ""; // No longer needed if not using Mammoth for DOCX
     // let mammoth: any = null; // Mammoth not needed
+    let currentUserForLogging: AccountInfo | null = null;
+    authStore.subscribe(value => {
+        currentUserForLogging = value.user;
+    });
 
-    // URL for your RAG API service - adjust if needed
-    // This could also come from an environment variable in a more complex app
-    const RAG_API_URL = 'http://127.0.0.1:8002'; // Default port for rag_api_service
+    // API Endpoints - Get base URL from Vite environment variables for local dev
+    const RAG_API_BASE_URL = import.meta.env.VITE_RAG_API_URL || 'http://localhost:8002'; // Fallback
+    const API_SEARCH_ENDPOINT = `${RAG_API_BASE_URL}/search`; 
+    const API_CHAT_ENDPOINT = '/api/chat';     // If you add chat functionality back here
+    const API_PREVIEW_PDF_ENDPOINT = `${RAG_API_BASE_URL}/preview-pdf`;
 
     // Pagination state
     let currentPage: number = 1;
@@ -62,11 +74,6 @@
         error?: string | null;
     }
 
-    // API Endpoints - relative paths, assuming a reverse proxy will route them
-    const API_SEARCH_ENDPOINT = '/api/search'; 
-    const API_CHAT_ENDPOINT = '/api/chat';     // If you add chat functionality back here
-    const API_PREVIEW_PDF_ENDPOINT = '/api/preview-pdf'; // For the PDF proxy
-
     async function performSearch(page: number = 1) {
         if (!query.trim()) {
             errorMessage = 'Please enter a search query.';
@@ -84,6 +91,14 @@
             totalResults = 0;
         }
         currentPage = page;
+
+        // Log search term submission
+        const userInfo = getUserLoggingInfo(currentUserForLogging);
+        logActivity({ 
+            event_type: 'SEARCH_SUBMITTED', 
+            search_term: query, 
+            ...userInfo 
+        });
 
         try {
             // We'll fetch a larger batch from API (currentApiLimit) 
@@ -151,14 +166,15 @@
     $: totalPages = Math.ceil(totalResults / resultsPerPage);
     $: paginatedResults = results.slice((currentPage - 1) * resultsPerPage, currentPage * resultsPerPage);
 
-    function goToPage(page: number) {
+    async function goToPage(page: number) { // Make function async
         if (page >= 1 && page <= totalPages) {
             currentPage = page;
-            // If we were doing server-side pagination for each page click:
-            // performSearch(page);
+            
+            // Wait for Svelte to update the DOM after currentPage change
+            await tick(); 
 
             // Scroll to the top of the page
-            window.scrollTo({ top: 0, behavior: 'smooth' }); // Use smooth scroll
+            window.scrollTo({ top: 0, behavior: 'smooth' }); 
         }
     }
 
@@ -174,8 +190,16 @@
 
     function openPdfPreview(doc: SourceDoc) {
         if (doc.public_url) {
+            // Log PDF preview event
+            const userInfo = getUserLoggingInfo(currentUserForLogging);
+            logActivity({ 
+                event_type: 'DOC_PREVIEW', 
+                document_id: String(doc.id), 
+                document_filename: doc.cleaned_filename || doc.title || doc.original_filename,
+                preview_type: 'PDF_PROXY',
+                ...userInfo 
+            });
             previewTitle = doc.cleaned_filename || doc.title || doc.original_filename || "PDF Document";
-            // Point iframe to your backend proxy endpoint, now using relative path for consistency
             previewUrl = `${API_PREVIEW_PDF_ENDPOINT}?url=${encodeURIComponent(doc.public_url)}`;
             previewType = 'pdf'; 
             showPreviewModal = true;
@@ -189,6 +213,15 @@
             alert("No public URL available for this DOCX document to preview.");
             return;
         }
+        // Log DOCX preview event
+        const userInfo = getUserLoggingInfo(currentUserForLogging);
+        logActivity({ 
+            event_type: 'DOC_PREVIEW', 
+            document_id: String(doc.id), 
+            document_filename: doc.cleaned_filename || doc.title || doc.original_filename,
+            preview_type: 'DOCX_MS_VIEWER',
+            ...userInfo 
+        });
         previewTitle = doc.cleaned_filename || doc.title || doc.original_filename || "Word Document";
         const viewerUrl = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(doc.public_url)}`;
         console.log("Using Office Viewer URL for DOCX:", viewerUrl);
@@ -204,7 +237,23 @@
         // docxHtmlContent = ""; // Not needed
     }
 
+    // Handle Escape key to close modal
+    function handleGlobalKeydown(event: KeyboardEvent) {
+        if (showPreviewModal && event.key === 'Escape') {
+            closePreviewModal();
+        }
+    }
+
+    // Lifecycle: Add/remove keydown listener when modal mounts/unmounts
+    // This is tricky if the modal itself is conditionally rendered with {#if}
+    // A better way might be to add it when showPreviewModal becomes true
+    // and remove when it becomes false, or attach to window and check if modal is active.
+
+    // Let's use Svelte's <svelte:window on:keydown={...} /> for simplicity if modal is shown
+
 </script>
+
+<svelte:window on:keydown={handleGlobalKeydown}/>
 
 <div class="container mx-auto p-4 max-w-3xl">
     <h1 class="text-2xl font-bold mb-6 text-center">Document Search</h1>
@@ -306,6 +355,15 @@
                                 target="_blank" 
                                 rel="noopener noreferrer"
                                 class="inline-block bg-green-500 hover:bg-green-600 text-white font-semibold py-2 px-4 rounded-md shadow hover:shadow-md transition-colors duration-150 ease-in-out text-sm"
+                                on:click={() => {
+                                    const userInfo = getUserLoggingInfo(currentUserForLogging);
+                                    logActivity({ 
+                                        event_type: 'DOC_DOWNLOAD_ATTEMPT', 
+                                        document_id: String(result.id), 
+                                        document_filename: result.cleaned_filename || result.title || result.original_filename,
+                                        ...userInfo 
+                                    });
+                                }}
                             >
                                 Download Document
                             </a>
@@ -364,14 +422,21 @@
     <!-- Close on backdrop click -->
     <div 
         class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4"
-        on:click|self={closePreviewModal}
+        on:click|self={closePreviewModal} 
+        role="presentation"
     >
-        <div class="bg-white p-2 rounded-lg shadow-2xl w-full max-w-4xl h-[90vh] flex flex-col">
+        <div 
+            class="bg-white p-2 rounded-lg shadow-2xl w-full max-w-4xl h-[90vh] flex flex-col"
+            role="dialog" 
+            aria-modal="true"
+            aria-labelledby="previewModalTitle"
+        >
             <div class="flex justify-between items-center p-2 border-b">
-                <h2 class="text-xl font-semibold truncate pr-2" title={previewTitle}>{previewTitle}</h2>
+                <h2 class="text-xl font-semibold truncate pr-2" title={previewTitle} id="previewModalTitle">{previewTitle}</h2>
                 <button 
                     on:click={closePreviewModal} 
                     class="text-gray-600 hover:text-gray-900 text-2xl font-bold"
+                    aria-label="Close preview modal"
                 >&times;</button>
             </div>
             <div class="flex-grow overflow-auto p-1 mt-1">
