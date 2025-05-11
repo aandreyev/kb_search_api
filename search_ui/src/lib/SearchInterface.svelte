@@ -3,9 +3,7 @@
     import { authStore } from './authStore'; // For getting current user
     import { logActivity, getUserLoggingInfo } from './activityLogger'; // Import logging utils
     import type { AccountInfo } from '@azure/msal-browser'; // For user type
-    // import type { SourceDoc, ChunkSnippetData } from '../app.d'; // REMOVE THIS LINE - types are local
-    // import { onMount, onDestroy } from 'svelte'; // Not needed if svelte:window is top-level
-    // import { onMount } from 'svelte'; // Mammoth not needed for this approach
+    // Local interface definitions
     let query: string = '';
     let results: any[] = []; // Will hold the search results (SourceDocument[])
     let isLoading: boolean = false;
@@ -33,13 +31,13 @@
     let totalResults: number = 0; // Will be set by API if we get total count
     let currentApiLimit: number = 20; // How many results to fetch from API initially (can be more than resultsPerPage)
 
-    interface ChunkSnippetData {
+    interface ChunkSnippetData { // Defined locally
         content: string;
         similarity: number;
         chunk_index?: number | null;
     }
 
-    interface SourceDoc {
+    interface SourceDoc { // Defined locally
         id: string | number;
         original_filename?: string | null;
         public_url?: string | null;
@@ -281,8 +279,19 @@
     </div>
 
     {#if errorMessage}
-        <div class="error-message bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg relative mb-4 shadow" role="alert">
-            <strong class="font-bold">Error:</strong>
+        <div 
+            class="px-4 py-3 rounded-lg relative mb-4 shadow"
+            role="alert"
+            class:bg-red-100={errorMessage !== "No documents found matching your query."}
+            class:border-red-400={errorMessage !== "No documents found matching your query."}
+            class:text-red-700={errorMessage !== "No documents found matching your query."}
+            class:bg-blue-100={errorMessage === "No documents found matching your query."}
+            class:border-blue-400={errorMessage === "No documents found matching your query."}
+            class:text-blue-700={errorMessage === "No documents found matching your query."}
+        >
+            {#if errorMessage !== "No documents found matching your query."}
+                <strong class="font-bold">Error:</strong>
+            {/if}
             <span class="block sm:inline">{errorMessage}</span>
         </div>
     {/if}
