@@ -5,10 +5,10 @@ from dotenv import load_dotenv
 from contextlib import asynccontextmanager
 from urllib.parse import urlparse
 from datetime import datetime # Import datetime for timestamp fields
-from typing import List, Optional # For List and Optional fields
+from typing import List, Optional, Any, Dict # For List, Optional, Any, and Dict fields
 
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from supabase import create_client, Client as SupabaseClient # Rename to avoid confusion
 from sqlalchemy import create_engine
 from fastapi.middleware.cors import CORSMiddleware # Import CORS middleware
@@ -74,6 +74,16 @@ class ChatQueryResponse(BaseModel):
     answer: str
     sources: list[SourceDocument]
     error: str | None = None
+
+class LogEntryRequest(BaseModel):
+    event_type: str
+    user_id: Optional[str] = None # From authenticated user
+    username: Optional[str] = None # From authenticated user
+    search_term: Optional[str] = None
+    document_id: Optional[str] = None # Using str for ID consistency from frontend
+    document_filename: Optional[str] = None
+    preview_type: Optional[str] = None
+    details: Optional[Dict[str, Any]] = None
 
 # --- Custom Embedding Class (Copied from chatbot.py) ---
 class ApiEmbeddings(Embeddings):
@@ -661,6 +671,54 @@ async def search_endpoint(request: ChatQueryRequest): # Uses limit from request
             ))
     
     return SearchQueryResponse(query=request.query, results=search_results_api)
+
+@app.post("/log-activity")
+async def log_activity_endpoint(log_entry: LogEntryRequest):
+    if not global_supabase_client:
+        print("ERROR (log-activity): Supabase client not available.")
+        # Don't crash the calling function, just log error and return success-ish
+        # Or raise HTTPException(status_code=503, detail="Logging service temporarily unavailable")
+        return {"status": "logging_error", "detail": "Supabase client unavailable"}
+
+    print(f"Logging activity: {log_entry.event_type}, User: {log_entry.username or log_entry.user_id or 'Anonymous'}")
+    try:
+        log_data = {
+            "user_id": log_entry.user_id,
+            "username": log_entry.username,
+            "event_type": log_entry.event_type,
+            "search_term": log_entry.search_term,
+            "document_id": str(log_entry.document_id) if log_entry.document_id is not None else None,
+            "document_filename": log_entry.document_filename,
+            "preview_type": log_entry.preview_type,
+            "details": log_entry.details or {}
+        }
+        # Filter out None values before inserting
+        log_data_to_insert = {k: v for k, v in log_data.items() if v is not None}
+
+        response = global_supabase_client.table("activity_logs").insert(log_data_to_insert).execute()
+        
+        # For supabase-python v1.x and v2.x, .execute() on insert usually returns an APIResponse object.
+        # Successful inserts often have data in response.data (list of inserted records).
+        # Errors would be in response.error or an exception might be raised by .execute() itself on failure.
+
+        if hasattr(response, 'error') and response.error:
+            print(f"Error logging activity to Supabase: {response.error}")
+            return {"status": "logging_error", "detail": str(response.error)}
+        elif response.data: 
+            log_id = response.data[0].get('id') if response.data and len(response.data)>0 else 'N/A'
+            print(f"Activity logged successfully: ID {log_id}")
+            return {"status": "success", "log_id": log_id }
+        else:
+            # This case might indicate success but no data returned, or an unhandled error prior to execute raising one.
+            print("Activity logging to Supabase: insert executed, no data in response and no explicit error attribute.")
+            return {"status": "success_no_data_or_unclear_error"}
+
+    except Exception as e:
+        print(f"Exception during logging activity: {e}")
+        import traceback
+        traceback.print_exc()
+        # Don't raise HTTPException here to avoid breaking client flow for logging failure
+        return {"status": "logging_exception", "detail": str(e)}
 
 # --- Main Block (for running with uvicorn if desired, e.g., python main.py) ---
 if __name__ == "__main__":

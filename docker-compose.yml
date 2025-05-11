@@ -13,9 +13,14 @@ services:
       - "${EMBEDDING_SERVICE_PORT_HOST:-8001}:8001" # Host port : Container port (which is 8001)
     volumes:
       - ./embedding_model_cache:/root/.cache  # Maps host './embedding_model_cache' to container's '/root/.cache'
+      - ./embedding_service:/app # Mount local code for hot reloading
     restart: unless-stopped
     networks:
       - app_network
+    # If CMD in Dockerfile is just ["python", "main.py"], 
+    # and main.py has reload=True in its __main__ block, this should work.
+    # Otherwise, uncomment and use this command to force reload:
+    # command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001", "--reload"]
 
   rag_api_service:
     build:
@@ -27,12 +32,18 @@ services:
       - ./.env
     ports:
       - "${RAG_API_PORT_HOST:-8002}:8002" # Maps host port to container port
+    volumes:
+      - ./rag_api_service:/app # Mount local code for hot reloading
     depends_on:
       - embedding_service
       - ollama # Depends on ollama being ready
     restart: unless-stopped
     networks:
       - app_network
+    # If CMD in Dockerfile is just ["python", "main.py"], 
+    # and main.py has reload=True in its __main__ block, this should work.
+    # Otherwise, uncomment and use this command to force reload:
+    # command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8002", "--reload"]
 
   ollama:
     image: ollama/ollama:latest
