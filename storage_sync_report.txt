@@ -1,0 +1,8 @@
+--- Storage Synchronization Report ---
+
+=== 'cleaned_filename' values from DB Not Found as filenames in Storage (at prefix 'documents/') (0) ===
+
+INFO: All 'cleaned_filename' entries in DB appear to have a matching filename in Storage at the specified prefix.
+
+=== Filenames in Storage (at prefix 'documents/') Not Found as 'cleaned_filename' in DB (1) ===
+  - documents/20230303_Memorandum_of_Advice_CGT_event C2_14609_AA.docx

@@ -1,0 +1,23 @@
+.git
+.gitignore
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+ollama_data/
+embedding_model_cache/
+search_ui/node_modules/
+# search_ui/build/ # Usually built inside container
+*.env
+*.env.*
+!*.env.example # Allow example env files if you have them
+
+# IDE/Editor specific
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

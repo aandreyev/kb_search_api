@@ -1,0 +1,76 @@
+# version: '3.8'
+
+services:
+  embedding_service:
+    build:
+      context: ./embedding_service
+      dockerfile: Dockerfile
+    # image: your_dockerhub_username/embedding_service:latest # Optional: if you pre-build and push to a registry
+    container_name: embedding_service
+    env_file:
+      - ./.env # Load environment variables from .env file in the project root
+    ports:
+      - "${EMBEDDING_SERVICE_PORT_HOST:-8001}:8001" # Host port : Container port (which is 8001)
+    volumes:
+      - ./embedding_model_cache:/root/.cache  # Maps host './embedding_model_cache' to container's '/root/.cache'
+    restart: unless-stopped
+    networks:
+      - app_network
+
+  rag_api_service:
+    build:
+      context: ./rag_api_service
+      dockerfile: Dockerfile
+    # image: your_dockerhub_username/rag_api_service:latest
+    container_name: rag_api_service
+    env_file:
+      - ./.env
+    ports:
+      - "${RAG_API_PORT_HOST:-8002}:8002" # Maps host port to container port
+    depends_on:
+      - embedding_service
+      - ollama # Depends on ollama being ready
+    restart: unless-stopped
+    networks:
+      - app_network
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ./ollama_data:/root/.ollama # Persist Ollama models on the host
+    restart: unless-stopped
+    networks:
+      - app_network
+    # For GPU support with Nvidia (requires Nvidia Docker Toolkit on host & GPU on Droplet):
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1 # or 'all'
+    #           capabilities: [gpu]
+
+  frontend_nginx:
+    build:
+      context: ./search_ui
+      dockerfile: Dockerfile
+      # args: # For passing build-time args to SvelteKit if needed
+        # VITE_RAG_API_URL: ${VITE_RAG_API_URL:-/api} 
+    container_name: frontend_nginx
+    ports:
+      - "${FRONTEND_PORT_HOST:-5173}:80" # Map host port (e.g., 5173) to Nginx container port 80
+    depends_on:
+      - rag_api_service # Optional, but good if Nginx proxies to it (not in current simple nginx.conf)
+    restart: unless-stopped
+    networks:
+      - app_network
+
+networks:
+  app_network:
+    driver: bridge
+
+volumes:
+  ollama_data: # Define the named volume for Ollama data 

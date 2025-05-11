@@ -1,0 +1,10 @@
+python-dotenv
+supabase
+# langchain-text-splitters # Not needed for this script
+requests # Not needed for this script
+# LangChain core and integrations - Not needed for this script
+# langchain
+# langchain-ollama
+# langchain-community
+# psycopg2-binary 
+# SQLAlchemy 

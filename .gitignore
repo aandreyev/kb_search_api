@@ -1,0 +1,18 @@
+.env
+*.env.*
+env.*
+*.env
+!*.env.example # This is good, allows committing an example template
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Cache and Data Directories (Docker Volumes)
+ollama_data/
+embedding_model_cache/
+
+# IDE/Editor specific
+.vscode/
+

@@ -1,0 +1,11 @@
+    .git
+    .gitignore
+    .venv/
+    __pycache__/
+    *.pyc
+    *.pyo
+    *.pyd
+    ollama_data/
+    search_ui/node_modules/ 
+    search_ui/build/ # If build happens in Dockerfile, this might not be needed here
+    *.env # Don't copy local .env into image, use docker-compose env_file

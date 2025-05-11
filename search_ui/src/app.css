@@ -1,0 +1,49 @@
+@import 'tailwindcss';
+@plugin '@tailwindcss/forms';
+@plugin '@tailwindcss/typography';
+
+/* Import Tailwind base, components, and utilities */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom global styles for Mammoth.js HTML output within .prose */
+@layer base {
+    /* Apply these within the @layer base to ensure they are processed correctly by Tailwind */
+    /* and can be overridden by utilities if needed */
+    .prose h1 {
+        @apply text-2xl font-bold mb-4 mt-6;
+    }
+    .prose h2 {
+        @apply text-xl font-semibold mb-3 mt-5;
+    }
+    .prose h3 {
+        @apply text-lg font-semibold mb-2 mt-4;
+    }
+    .prose p {
+        @apply mb-3 leading-relaxed;
+    }
+    .prose ul, .prose ol {
+        @apply mb-3 pl-5;
+    }
+    .prose li {
+        @apply mb-1;
+    }
+    .prose table {
+        @apply w-full mb-4 border-collapse border border-gray-300;
+    }
+    .prose th, .prose td {
+        @apply border border-gray-300 px-3 py-2 text-left;
+    }
+    .prose th {
+        @apply bg-gray-100 font-semibold;
+    }
+    .prose a {
+        @apply text-blue-600 hover:underline;
+    }
+    /* Style for pre within prose if mammoth generates them */
+    .prose pre {
+        @apply bg-gray-100 p-3 rounded-md overflow-x-auto whitespace-pre-wrap break-words font-mono text-sm;
+        /* color: inherit; /* Tailwind's prose pre usually handles color well */
+    }
+}
