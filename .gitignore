@@ -13,6 +13,9 @@ __pycache__/
 ollama_data/
 embedding_model_cache/
 
+# Docker Compose Override for local dev
+docker-compose.override.yml
+
 # IDE/Editor specific
 .vscode/
 

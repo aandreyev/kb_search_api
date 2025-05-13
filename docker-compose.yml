@@ -28,20 +28,33 @@ services:
       - ./.env # Uses root .env
     ports:
       - "${RAG_API_PORT_HOST:-8002}:8002"
-    volumes:
-      # - ./rag_api_service:/app # UNCOMMENT FOR LOCAL DEV HOT RELOAD ONLY
+    # volumes: # Ensure this is either absent or an empty list like volumes: [] if no base volumes
+              # The override file will add the specific volume for local dev.
     depends_on:
       - embedding_service
-      - ollama
+      - ollama # Depends on ollama being ready
     restart: unless-stopped
     networks:
       - app_network
 
   ollama:
-    # ... (as before) ...
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
     volumes:
       - ./ollama_data:/root/.ollama
-    # ...
+    restart: unless-stopped
+    networks:
+      - app_network
+    # For GPU support with Nvidia (requires Nvidia Docker Toolkit on host & GPU on Droplet):
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1 # or 'all'
+    #           capabilities: [gpu]
 
   frontend_nginx:
     build:
