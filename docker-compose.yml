@@ -5,76 +5,54 @@ services:
     build:
       context: ./embedding_service
       dockerfile: Dockerfile
-    # image: your_dockerhub_username/embedding_service:latest # Optional: if you pre-build and push to a registry
     container_name: embedding_service
     env_file:
-      - ./.env # Load environment variables from .env file in the project root
+      - ./.env # Uses root .env
     ports:
-      - "${EMBEDDING_SERVICE_PORT_HOST:-8001}:8001" # Host port : Container port (which is 8001)
+      # Host port (left of :) can use var from .env or be hardcoded for simplicity on Droplet
+      # Container port (right of :) must match what Uvicorn uses (EMBEDDING_SERVICE_PORT from .env)
+      - "${EMBEDDING_SERVICE_PORT_HOST:-8001}:8001"
     volumes:
-      - ./embedding_model_cache:/root/.cache  # Maps host './embedding_model_cache' to container's '/root/.cache'
-      - ./embedding_service:/app # Mount local code for hot reloading
+      - ./embedding_model_cache:/root/.cache
+      # - ./embedding_service:/app # UNCOMMENT FOR LOCAL DEV HOT RELOAD ONLY
     restart: unless-stopped
     networks:
       - app_network
-    # If CMD in Dockerfile is just ["python", "main.py"], 
-    # and main.py has reload=True in its __main__ block, this should work.
-    # Otherwise, uncomment and use this command to force reload:
-    # command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001", "--reload"]
 
   rag_api_service:
     build:
       context: ./rag_api_service
       dockerfile: Dockerfile
-    # image: your_dockerhub_username/rag_api_service:latest
     container_name: rag_api_service
     env_file:
-      - ./.env
+      - ./.env # Uses root .env
     ports:
-      - "${RAG_API_PORT_HOST:-8002}:8002" # Maps host port to container port
+      - "${RAG_API_PORT_HOST:-8002}:8002"
     volumes:
-      - ./rag_api_service:/app # Mount local code for hot reloading
+      # - ./rag_api_service:/app # UNCOMMENT FOR LOCAL DEV HOT RELOAD ONLY
     depends_on:
       - embedding_service
-      - ollama # Depends on ollama being ready
+      - ollama
     restart: unless-stopped
     networks:
       - app_network
-    # If CMD in Dockerfile is just ["python", "main.py"], 
-    # and main.py has reload=True in its __main__ block, this should work.
-    # Otherwise, uncomment and use this command to force reload:
-    # command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8002", "--reload"]
 
   ollama:
-    image: ollama/ollama:latest
-    container_name: ollama
-    ports:
-      - "11434:11434"
+    # ... (as before) ...
     volumes:
-      - ./ollama_data:/root/.ollama # Persist Ollama models on the host
-    restart: unless-stopped
-    networks:
-      - app_network
-    # For GPU support with Nvidia (requires Nvidia Docker Toolkit on host & GPU on Droplet):
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1 # or 'all'
-    #           capabilities: [gpu]
+      - ./ollama_data:/root/.ollama
+    # ...
 
   frontend_nginx:
     build:
       context: ./search_ui
       dockerfile: Dockerfile
-      # args: # For passing build-time args to SvelteKit if needed
-        # VITE_RAG_API_URL: ${VITE_RAG_API_URL:-/api} 
+      args: # Pass build-time ARGs from the root .env file to the Dockerfile
+        VITE_MSAL_REDIRECT_URI: ${VITE_MSAL_REDIRECT_URI} # Reads from root .env
+        VITE_RAG_API_URL: ${VITE_RAG_API_URL}             # Reads from root .env
     container_name: frontend_nginx
     ports:
-      - "${FRONTEND_PORT_HOST:-5173}:80" # Map host port (e.g., 5173) to Nginx container port 80
-    depends_on:
-      - rag_api_service # Optional, but good if Nginx proxies to it (not in current simple nginx.conf)
+      - "${FRONTEND_PORT_HOST:-5173}:80" # Host port : Nginx container port
     restart: unless-stopped
     networks:
       - app_network
@@ -84,4 +62,5 @@ networks:
     driver: bridge
 
 volumes:
-  ollama_data: # Define the named volume for Ollama data 
+  ollama_data:
+  embedding_model_cache:

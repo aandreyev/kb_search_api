@@ -20,8 +20,8 @@
     });
 
     // API Endpoints - Get base URL from Vite environment variables for local dev
-    const RAG_API_BASE_URL = import.meta.env.VITE_RAG_API_URL || 'http://localhost:8002'; // Fallback
-    const API_SEARCH_ENDPOINT = `${RAG_API_BASE_URL}/search`; 
+    const RAG_API_BASE_URL = import.meta.env.VITE_RAG_API_URL || ''; // Fallback to relative if not set
+    const API_SEARCH_ENDPOINT = `${RAG_API_BASE_URL}/search`;
     const API_CHAT_ENDPOINT = '/api/chat';     // If you add chat functionality back here
     const API_PREVIEW_PDF_ENDPOINT = `${RAG_API_BASE_URL}/preview-pdf`;
 

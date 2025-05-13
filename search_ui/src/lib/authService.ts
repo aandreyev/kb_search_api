@@ -3,9 +3,9 @@ import { PublicClientApplication, type Configuration, LogLevel, type Authenticat
 // MSAL Configuration
 // IMPORTANT: Replace placeholders with your actual Azure App Registration values
 // These should ideally come from environment variables, especially for client ID.
-const MSAL_CLIENT_ID = import.meta.env.VITE_MSAL_CLIENT_ID || 'YOUR_APPLICATION_CLIENT_ID_HERE';
-const MSAL_TENANT_ID = import.meta.env.VITE_MSAL_TENANT_ID || 'YOUR_DIRECTORY_TENANT_ID_HERE';
-const MSAL_REDIRECT_URI = import.meta.env.VITE_MSAL_REDIRECT_URI || 'http://localhost:5173'; // Must match one registered in Azure
+const MSAL_CLIENT_ID = import.meta.env.VITE_MSAL_CLIENT_ID || 'YOUR_FALLBACK_CLIENT_ID_PLACEHOLDER';
+const MSAL_TENANT_ID = import.meta.env.VITE_MSAL_TENANT_ID || 'YOUR_FALLBACK_TENANT_ID_PLACEHOLDER';
+const MSAL_REDIRECT_URI = import.meta.env.VITE_MSAL_REDIRECT_URI || 'http://localhost:5173/fallback'; // Fallback for safety
 
 if (MSAL_CLIENT_ID === 'YOUR_APPLICATION_CLIENT_ID_HERE' || MSAL_TENANT_ID === 'YOUR_DIRECTORY_TENANT_ID_HERE') {
     console.warn(

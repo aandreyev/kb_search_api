@@ -13,10 +13,15 @@ RUN npm ci
 # Copy the rest of the application source code
 COPY . .
 
+# Declare ARGs that can be passed from docker-compose build
+ARG VITE_MSAL_REDIRECT_URI
+ARG VITE_RAG_API_URL
+
+# Set ENVs for the build process from the ARGs
+ENV VITE_MSAL_REDIRECT_URI=${VITE_MSAL_REDIRECT_URI}
+ENV VITE_RAG_API_URL=${VITE_RAG_API_URL}
+
 # Build the SvelteKit app for static deployment
-# Pass public API URL at build time if needed by the app for static generation
-# ARG VITE_RAG_API_URL=/api # Example, will be overridden by docker-compose env
-# ENV VITE_RAG_API_URL=${VITE_RAG_API_URL}
 RUN npm run build
 
 # Stage 2: Serve the static assets with Nginx

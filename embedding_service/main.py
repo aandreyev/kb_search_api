@@ -96,9 +96,8 @@ async def get_embedding(request: EmbeddingRequest):
 # --- Main Block (for running with uvicorn) ---
 if __name__ == "__main__":
     import uvicorn
-    # App Platform injects PORT, use it. Default for local is still from .env or 8001.
-    port = int(os.getenv("PORT", os.getenv("EMBEDDING_SERVICE_PORT", 8001)))
-    host = os.getenv("EMBEDDING_SERVICE_HOST", "0.0.0.0") # Listen on all interfaces for App Platform
+    port = int(os.getenv("EMBEDDING_SERVICE_PORT", 8001)) # Reads from .env
+    host = "0.0.0.0" # Essential for Docker
     print(f"Starting Uvicorn server on {host}:{port}")
-    uvicorn.run("main:app", host=host, port=port, reload=False) # reload=False for production
+    uvicorn.run("main:app", host=host, port=port, reload=False) # reload=False for prod
 

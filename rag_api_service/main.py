@@ -171,7 +171,6 @@ async def lifespan(app: FastAPI):
         # LLM Provider Configuration
         "llm_provider": os.getenv("LLM_PROVIDER", "ollama").lower(), # Default to ollama
         "ollama_model": os.getenv("OLLAMA_MODEL", "phi3:mini"),
-        # "ollama_base_url": os.getenv("OLLAMA_BASE_URL"), # Optional for Ollama
         "openai_api_key": os.getenv("OPENAI_API_KEY"),
         "openai_model_name": os.getenv("OPENAI_MODEL_NAME", "gpt-4"),
         "db_pass": os.getenv('SUPABASE_DB_PASSWORD'),
@@ -216,8 +215,8 @@ async def lifespan(app: FastAPI):
         if global_config["llm_provider"] == "ollama":
             try:
                 llm = ChatOllama(
-                    model=global_config['ollama_model']
-                    # base_url=global_config['ollama_base_url'] # Pass if set
+                    model=global_config['ollama_model'],
+                    base_url=global_config.get('OLLAMA_BASE_URL') # Ensure this is used
                 )
                 print(f"Checking Ollama model ({global_config['ollama_model']}) availability...")
                 llm.invoke("Hi") # Simple test invoke
@@ -723,8 +722,8 @@ async def log_activity_endpoint(log_entry: LogEntryRequest):
 # --- Main Block (for running with uvicorn if desired, e.g., python main.py) ---
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.getenv("PORT", os.getenv("RAG_API_PORT", 8002)))
-    host = "0.0.0.0" # Listen on all interfaces for App Platform
+    port = int(os.getenv("RAG_API_PORT", 8002)) # Reads from .env
+    host = "0.0.0.0" # Essential for Docker
     print(f"Starting Uvicorn server on {host}:{port}")
-    uvicorn.run("main:app", host=host, port=port, reload=False) # reload=False for production
+    uvicorn.run("main:app", host=host, port=port, reload=False) # reload=False for prod
             
