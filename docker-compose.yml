@@ -6,8 +6,18 @@ services:
       context: ./embedding_service
       dockerfile: Dockerfile
     container_name: embedding_service
-    env_file:
-      - ./.env # Uses root .env
+    # Use Doppler for environment variables instead of env_file
+    environment:
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - SUPABASE_DB_PASSWORD=${SUPABASE_DB_PASSWORD}
+      - SUPABASE_DOCUMENTS_TABLE=${SUPABASE_DOCUMENTS_TABLE:-documents}
+      - SUPABASE_CHUNKS_TABLE=${SUPABASE_CHUNKS_TABLE:-document_chunks}
+      - EMBEDDING_SERVICE_URL=${EMBEDDING_SERVICE_URL:-http://embedding_service:8001}
+      - EMBEDDING_MODEL_NAME=${EMBEDDING_MODEL_NAME:-BAAI/bge-large-en-v1.5}
+      - EMBEDDING_MODEL_DEVICE=${EMBEDDING_MODEL_DEVICE:-cpu}
+      - PGVECTOR_DIMENSION=${PGVECTOR_DIMENSION:-1024}
+      - EMBEDDING_SERVICE_PORT=${EMBEDDING_SERVICE_PORT:-8001}
     ports:
       # Host port (left of :) can use var from .env or be hardcoded for simplicity on Droplet
       # Container port (right of :) must match what Uvicorn uses (EMBEDDING_SERVICE_PORT from .env)
@@ -24,15 +34,30 @@ services:
       context: ./rag_api_service
       dockerfile: Dockerfile
     container_name: rag_api_service
-    env_file:
-      - ./.env # Uses root .env
+    # Use Doppler for environment variables instead of env_file
+    environment:
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - SUPABASE_DB_PASSWORD=${SUPABASE_DB_PASSWORD}
+      - SUPABASE_DOCUMENTS_TABLE=${SUPABASE_DOCUMENTS_TABLE:-documents}
+      - SUPABASE_CHUNKS_TABLE=${SUPABASE_CHUNKS_TABLE:-document_chunks}
+      - EMBEDDING_SERVICE_URL=${EMBEDDING_SERVICE_URL:-http://embedding_service:8001}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
+      - PGVECTOR_DIMENSION=${PGVECTOR_DIMENSION:-1024}
+      - LLM_PROVIDER=${LLM_PROVIDER:-ollama}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-phi3:mini}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL_NAME=${OPENAI_MODEL_NAME:-gpt-4}
+      - RAG_API_PORT=${RAG_API_PORT:-8002}
     ports:
       - "${RAG_API_PORT_HOST:-8002}:8002"
     # volumes: # Ensure this is either absent or an empty list like volumes: [] if no base volumes
               # The override file will add the specific volume for local dev.
     depends_on:
-      - embedding_service
-      - ollama # Depends on ollama being ready
+      embedding_service:
+        condition: service_started
+      ollama:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - app_network
@@ -47,6 +72,12 @@ services:
     restart: unless-stopped
     networks:
       - app_network
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 10s bash -c 'until printf \"\" 2>>/dev/null >>/dev/tcp/localhost/11434; do sleep 1; done'"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 40s
     # For GPU support with Nvidia (requires Nvidia Docker Toolkit on host & GPU on Droplet):
     # deploy:
     #   resources:
@@ -61,8 +92,10 @@ services:
       context: ./search_ui
       dockerfile: Dockerfile
       args: # Pass build-time ARGs from the root .env file to the Dockerfile
-        VITE_MSAL_REDIRECT_URI: ${VITE_MSAL_REDIRECT_URI} # Reads from root .env
-        VITE_RAG_API_URL: ${VITE_RAG_API_URL}             # Reads from root .env
+        VITE_MSAL_CLIENT_ID: ${VITE_MSAL_CLIENT_ID}       # Reads from Doppler
+        VITE_MSAL_TENANT_ID: ${VITE_MSAL_TENANT_ID}       # Reads from Doppler
+        VITE_MSAL_REDIRECT_URI: ${VITE_MSAL_REDIRECT_URI} # Reads from Doppler
+        VITE_RAG_API_URL: ${VITE_RAG_API_URL}             # Reads from Doppler
     container_name: frontend_nginx
     ports:
       - "${FRONTEND_PORT_HOST:-5173}:80" # Host port : Nginx container port

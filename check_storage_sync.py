@@ -1,13 +1,14 @@
 import os
 from dotenv import load_dotenv
 from supabase import create_client, Client
+from doppler_integration import load_environment
 
 def main():
     """Compares documents in the Supabase database table against files in Supabase Storage."""
     print("Starting storage synchronization check...")
 
     # 1. Load Configuration
-    load_dotenv()
+    load_environment()
     supabase_url = os.getenv("SUPABASE_URL")
     supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
     documents_table_name = os.getenv("SUPABASE_DOCUMENTS_TABLE", "documents")

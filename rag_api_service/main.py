@@ -26,11 +26,11 @@ from langchain_ollama.chat_models import ChatOllama
 from langchain_openai import ChatOpenAI # Import ChatOpenAI
 from langchain_community.vectorstores import SupabaseVectorStore # Corrected import
 
-# Attempt to load .env from parent directory, then current directory as fallback for service
-if os.path.exists('../.env'):
-    load_dotenv(dotenv_path='../.env')
-else:
-    load_dotenv() # Load .env from current directory if in service dir
+# Import doppler_integration from current directory
+from doppler_integration import load_environment
+
+# Load environment variables from Doppler or fallback to .env
+load_environment()
 
 # --- Global Variables for RAG Components (initialized in lifespan) ---
 global_rag_chain = None
@@ -171,6 +171,7 @@ async def lifespan(app: FastAPI):
         # LLM Provider Configuration
         "llm_provider": os.getenv("LLM_PROVIDER", "ollama").lower(), # Default to ollama
         "ollama_model": os.getenv("OLLAMA_MODEL", "phi3:mini"),
+        "ollama_base_url": os.getenv("OLLAMA_BASE_URL", "http://ollama:11434"),
         "openai_api_key": os.getenv("OPENAI_API_KEY"),
         "openai_model_name": os.getenv("OPENAI_MODEL_NAME", "gpt-4"),
         "db_pass": os.getenv('SUPABASE_DB_PASSWORD'),
@@ -216,7 +217,7 @@ async def lifespan(app: FastAPI):
             try:
                 llm = ChatOllama(
                     model=global_config['ollama_model'],
-                    base_url=global_config.get('OLLAMA_BASE_URL') # Ensure this is used
+                    base_url=global_config['ollama_base_url'] # Ensure this is used
                 )
                 print(f"Checking Ollama model ({global_config['ollama_model']}) availability...")
                 llm.invoke("Hi") # Simple test invoke

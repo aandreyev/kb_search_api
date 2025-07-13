@@ -1,4 +1,5 @@
 import os
+import sys
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
@@ -6,8 +7,11 @@ from dotenv import load_dotenv
 import torch
 from contextlib import asynccontextmanager
 
-# Load environment variables from .env file in the parent directory
-load_dotenv(dotenv_path='../.env')
+# Import doppler_integration from current directory
+from doppler_integration import load_environment
+
+# Load environment variables from Doppler or fallback to .env
+load_environment()
 
 # --- Configuration ---
 MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "BAAI/bge-large-en-v1.5")
