@@ -1,0 +1,101 @@
+-- Sample documents for testing hybrid search functionality
+-- These represent typical Australian legal documents that would be in the knowledge base
+
+INSERT INTO documents (
+    original_filename,
+    public_url,
+    title,
+    author,
+    last_modified,
+    created_date,
+    file_type,
+    document_summary,
+    law_area,
+    document_category,
+    cleaned_filename,
+    analysis_notes
+) VALUES 
+(
+    'Australian_Taxation_Office_Small_Business_CGT_Concessions_2023.pdf',
+    'https://example.supabase.co/storage/v1/object/public/documents/ato_small_business_cgt_2023.pdf',
+    'Small Business CGT Concessions - Comprehensive Guide',
+    ARRAY['Australian Taxation Office', 'ATO Legal Team'],
+    '2023-12-15 14:30:00'::timestamp,
+    '2023-01-10 09:00:00'::timestamp,
+    'pdf',
+    'Comprehensive guide covering all aspects of small business capital gains tax concessions available under Australian tax law. Includes eligibility criteria, calculation methods, and practical examples.',
+    ARRAY['taxation', 'small business', 'capital gains tax', 'concessions'],
+    'taxation_guide',
+    'ato_small_business_cgt_2023.pdf',
+    'Key document for CGT concession queries. Updated annually. Contains specific eligibility thresholds and examples.'
+),
+(
+    'Restraint_of_Trade_Executive_Employment_Contracts_2024.docx',
+    'https://example.supabase.co/storage/v1/object/public/documents/restraint_trade_executives_2024.docx',
+    'Restraint of Trade Clauses in Executive Employment Contracts',
+    ARRAY['Commercial Law Associates', 'Sarah Mitchell', 'David Chen'],
+    '2024-03-22 16:45:00'::timestamp,
+    '2024-02-01 10:15:00'::timestamp,
+    'docx',
+    'Analysis of restraint of trade clauses in executive employment contracts, including enforceability, geographical limitations, and time restrictions under Australian employment law.',
+    ARRAY['employment law', 'restraint of trade', 'executive contracts', 'competition law'],
+    'legal_analysis',
+    'restraint_trade_executives_2024.docx',
+    'Frequently referenced for executive employment matters. Contains case law analysis and practical precedents.'
+),
+(
+    'Company_Directors_Duties_Corporations_Act_Commentary.pdf',
+    'https://example.supabase.co/storage/v1/object/public/documents/directors_duties_commentary.pdf',
+    'Directors'' Duties Under the Corporations Act 2001 - Legal Commentary',
+    ARRAY['Australian Corporate Law Institute', 'Professor Jane Roberts'],
+    '2023-11-08 11:20:00'::timestamp,
+    '2023-09-15 08:30:00'::timestamp,
+    'pdf',
+    'Detailed commentary on directors'' duties under sections 180-184 of the Corporations Act 2001, including fiduciary duties, duty of care, and business judgment rule applications.',
+    ARRAY['corporate law', 'directors duties', 'corporations act', 'fiduciary duties'],
+    'legal_commentary',
+    'directors_duties_commentary.pdf',
+    'Essential reference for corporate governance matters. Includes recent ASIC guidance and Federal Court decisions.'
+),
+(
+    'Workplace_Safety_Compliance_Mining_Industry_WA.pdf',
+    'https://example.supabase.co/storage/v1/object/public/documents/mining_safety_compliance_wa.pdf',
+    'Workplace Safety Compliance Requirements - Western Australian Mining Industry',
+    ARRAY['Department of Mines, Industry Regulation and Safety', 'WA Government'],
+    '2024-01-30 13:10:00'::timestamp,
+    '2023-12-01 07:45:00'::timestamp,
+    'pdf',
+    'Comprehensive overview of workplace health and safety compliance requirements specific to the Western Australian mining industry, including reporting obligations and penalty structures.',
+    ARRAY['workplace safety', 'mining law', 'compliance', 'western australia', 'occupational health'],
+    'compliance_guide',
+    'mining_safety_compliance_wa.pdf',
+    'Industry-specific safety requirements. Updated quarterly. Essential for mining operations compliance.'
+),
+(
+    'GST_Input_Tax_Credits_Professional_Services_ATO_Ruling.pdf',
+    'https://example.supabase.co/storage/v1/object/public/documents/gst_input_credits_professional.pdf',
+    'GST Input Tax Credits for Professional Services - ATO Public Ruling',
+    ARRAY['Australian Taxation Office', 'GST Technical Team'],
+    '2023-10-12 09:25:00'::timestamp,
+    '2023-08-20 14:00:00'::timestamp,
+    'pdf',
+    'Public ruling on the application of GST input tax credit rules for professional service providers, including legal, accounting, and consulting services.',
+    ARRAY['gst', 'input tax credits', 'professional services', 'taxation', 'public ruling'],
+    'ato_ruling',
+    'gst_input_credits_professional.pdf',
+    'Key reference for GST compliance in professional services. Contains binding ATO interpretation and examples.'
+),
+(
+    'Trade_Practices_Competition_Consumer_Act_Essential_Facilities_Doctrine.docx',
+    'https://example.supabase.co/storage/v1/object/public/documents/essential_facilities_doctrine.docx',
+    'Essential Facilities Doctrine Under Australian Competition Law',
+    ARRAY['Competition Law Research Group', 'Dr. Michael Thompson', 'Lisa Wong'],
+    '2024-02-14 12:35:00'::timestamp,
+    '2024-01-05 16:20:00'::timestamp,
+    'docx',
+    'Analysis of the essential facilities doctrine application under the Competition and Consumer Act 2010, including High Court precedents and ACCC enforcement actions.',
+    ARRAY['competition law', 'essential facilities', 'trade practices', 'accc', 'antitrust'],
+    'academic_analysis',
+    'essential_facilities_doctrine.docx',
+    'Advanced competition law analysis. Referenced in major competition litigation matters.'
+); 
