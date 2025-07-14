@@ -2,7 +2,8 @@ import { writable, type Writable, get } from 'svelte/store';
 import { 
     loginRequest as MsalLoginRequest, 
     acquireToken as msalAcquireTokenInternal, 
-    getInitializedMsalInstance 
+    getInitializedMsalInstance,
+    apiRequest // Add this import
 } from './authService';
 import type { AccountInfo, AuthenticationResult, InteractionRequiredAuthError, BrowserAuthError } from '@azure/msal-browser';
 import { logActivity, getUserLoggingInfo } from './activityLogger'; // Import logging utils
@@ -39,7 +40,7 @@ async function _initializeAuthInternal(): Promise<void> {
 
         if (activeAccount) {
             console.log("authStore: Active account found after init:", activeAccount.username);
-            const tokenResponse = await msalAcquireTokenInternal(); // This now also uses getInitializedMsalInstance()
+            const tokenResponse = await msalAcquireTokenInternal(apiRequest); // Pass the correct API scopes
             if (tokenResponse && tokenResponse.accessToken) {
                 const userInfo = getUserLoggingInfo(activeAccount);
                 authStore.set({

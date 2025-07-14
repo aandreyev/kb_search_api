@@ -1,8 +1,10 @@
 <script lang="ts">
     import { tick } from 'svelte'; // Import tick
-    import { authStore } from './authStore'; // For getting current user
+    import { authStore, acquireToken, logout } from './authStore'; // Import from authStore
+    import { apiRequest } from './authService'; // Import apiRequest from authService
     import { logActivity, getUserLoggingInfo } from './activityLogger'; // Import logging utils
     import type { AccountInfo } from '@azure/msal-browser'; // For user type
+    import { onMount } from 'svelte';
     // Local interface definitions
     let query: string = '';
     let results: any[] = []; // Will hold the search results (SourceDocument[])
@@ -15,8 +17,10 @@
     // let docxHtmlContent: string = ""; // No longer needed if not using Mammoth for DOCX
     // let mammoth: any = null; // Mammoth not needed
     let currentUserForLogging: AccountInfo | null = null;
+    let currentAccessToken: string | null = null;
     authStore.subscribe(value => {
         currentUserForLogging = value.user;
+        currentAccessToken = value.accessToken;
     });
 
     // API Endpoints - Get base URL from Vite environment variables for local dev
@@ -99,6 +103,13 @@
         });
 
         try {
+            // *** CRITICAL FIX: Acquire a token for our specific API scopes before calling it ***
+            const tokenResponse = await acquireToken(apiRequest);
+            if (!tokenResponse || !tokenResponse.accessToken) {
+                throw new Error("Failed to acquire access token for API.");
+            }
+            const accessToken = tokenResponse.accessToken;
+
             // We'll fetch a larger batch from API (currentApiLimit) 
             // and then paginate client-side for now. 
             // True server-side pagination would require API to accept offset/page.
@@ -106,14 +117,21 @@
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${accessToken}`
                 },
                 // Send the increased limit to the API
                 body: JSON.stringify({ query: query, limit: currentApiLimit }), 
             });
 
             if (!response.ok) {
-                const errorData = await response.json().catch(() => ({ detail: response.statusText }));
-                throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
+                let errorDetail = "An unknown error occurred.";
+                try {
+                    const errorData = await response.json();
+                    errorDetail = errorData.detail || JSON.stringify(errorData);
+                } catch(e) {
+                    errorDetail = response.statusText;
+                }
+                throw new Error(`API Error: ${response.status} - ${errorDetail}`);
             }
 
             const data: ApiSearchResponse = await response.json(); // Use new interface
@@ -186,24 +204,27 @@
         }
     }
 
-    function openPdfPreview(doc: SourceDoc) {
-        if (doc.public_url) {
-            // Log PDF preview event
-            const userInfo = getUserLoggingInfo(currentUserForLogging);
-            logActivity({ 
-                event_type: 'DOC_PREVIEW', 
-                document_id: String(doc.id), 
-                document_filename: doc.cleaned_filename || doc.title || doc.original_filename,
-                preview_type: 'PDF_PROXY',
-                ...userInfo 
-            });
-            previewTitle = doc.cleaned_filename || doc.title || doc.original_filename || "PDF Document";
-            previewUrl = `${API_PREVIEW_PDF_ENDPOINT}?url=${encodeURIComponent(doc.public_url)}`;
-            previewType = 'pdf'; 
-            showPreviewModal = true;
-        } else {
-            alert("No public URL available for this document to preview.");
+    async function openPdfPreview(doc: SourceDoc) {
+        if (!doc.public_url) {
+            alert("No public URL available for this PDF document.");
+            return;
         }
+
+        // Log PDF preview event
+        const userInfo = getUserLoggingInfo(currentUserForLogging);
+        logActivity({ 
+            event_type: 'DOC_PREVIEW', 
+            document_id: String(doc.id), 
+            document_filename: doc.cleaned_filename || doc.title || doc.original_filename,
+            preview_type: 'PDF_PROXY',
+            ...userInfo 
+        });
+
+        // Use the new proxied endpoint and pass the Supabase URL as a query parameter
+        previewTitle = doc.cleaned_filename || doc.title || doc.original_filename || "PDF Document";
+        previewUrl = `${API_PREVIEW_PDF_ENDPOINT}?url=${encodeURIComponent(doc.public_url)}`;
+        previewType = 'pdf';
+        showPreviewModal = true;
     }
 
     async function openDocxPreview(doc: SourceDoc) {
@@ -248,6 +269,26 @@
     // and remove when it becomes false, or attach to window and check if modal is active.
 
     // Let's use Svelte's <svelte:window on:keydown={...} /> for simplicity if modal is shown
+
+    async function handleLogout() {
+        const user = $authStore.user;
+        if (user) {
+            const userInfo = getUserLoggingInfo(user);
+            await logActivity({
+                event_type: 'USER_LOGOUT_SUCCESS', // Or just LOGOUT
+                ...userInfo
+            });
+        }
+        logout();
+    }
+
+    function clearSearch() {
+        query = '';
+        results = [];
+        totalResults = 0;
+        currentPage = 1;
+        errorMessage = null;
+    }
 
 </script>
 

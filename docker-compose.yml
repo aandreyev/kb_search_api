@@ -49,6 +49,10 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OPENAI_MODEL_NAME=${OPENAI_MODEL_NAME:-gpt-4}
       - RAG_API_PORT=${RAG_API_PORT:-8002}
+      # Auth secrets required for token validation
+      - TENANT_ID=${TENANT_ID}
+      - CLIENT_ID=${CLIENT_ID}
+      - API_SCOPE=${API_SCOPE}
     ports:
       - "${RAG_API_PORT_HOST:-8002}:8002"
     # volumes: # Ensure this is either absent or an empty list like volumes: [] if no base volumes
@@ -96,9 +100,13 @@ services:
         VITE_MSAL_TENANT_ID: ${VITE_MSAL_TENANT_ID}       # Reads from Doppler
         VITE_MSAL_REDIRECT_URI: ${VITE_MSAL_REDIRECT_URI} # Reads from Doppler
         VITE_RAG_API_URL: ${VITE_RAG_API_URL}             # Reads from Doppler
+        VITE_API_SCOPE: ${VITE_API_SCOPE}                 # Reads from Doppler
     container_name: frontend_nginx
     ports:
       - "${FRONTEND_PORT_HOST:-5173}:80" # Host port : Nginx container port
+    depends_on:
+      rag_api_service:
+        condition: service_started
     restart: unless-stopped
     networks:
       - app_network

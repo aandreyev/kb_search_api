@@ -7,6 +7,12 @@ const MSAL_CLIENT_ID = import.meta.env.VITE_MSAL_CLIENT_ID || 'YOUR_FALLBACK_CLI
 const MSAL_TENANT_ID = import.meta.env.VITE_MSAL_TENANT_ID || 'YOUR_FALLBACK_TENANT_ID_PLACEHOLDER';
 const MSAL_REDIRECT_URI = import.meta.env.VITE_MSAL_REDIRECT_URI || 'http://localhost:5173/fallback'; // Fallback for safety
 
+// This is the scope required to call your backend API.
+// You must expose this scope in your backend's Azure App Registration
+// and grant the frontend app permission to access it.
+const API_SCOPE = import.meta.env.VITE_API_SCOPE || `api://${MSAL_CLIENT_ID}/access_as_user`;
+
+
 if (MSAL_CLIENT_ID === 'YOUR_APPLICATION_CLIENT_ID_HERE' || MSAL_TENANT_ID === 'YOUR_DIRECTORY_TENANT_ID_HERE') {
     console.warn(
         'MSAL placeholders not replaced in authService.ts. Authentication will likely fail. \n' +
@@ -15,11 +21,11 @@ if (MSAL_CLIENT_ID === 'YOUR_APPLICATION_CLIENT_ID_HERE' || MSAL_TENANT_ID === '
     );
 }
 
-const msalConfig: Configuration = {
+export const msalConfig: Configuration = {
     auth: {
-        clientId: MSAL_CLIENT_ID,
-        authority: `https://login.microsoftonline.com/${MSAL_TENANT_ID}`,
-        redirectUri: MSAL_REDIRECT_URI,
+        clientId: import.meta.env.VITE_MSAL_CLIENT_ID,
+        authority: `https://login.microsoftonline.com/${import.meta.env.VITE_MSAL_TENANT_ID}/v2.0`,
+        redirectUri: import.meta.env.VITE_MSAL_REDIRECT_URI || window.location.origin,
         postLogoutRedirectUri: MSAL_REDIRECT_URI, // Where to redirect after logout
         navigateToLoginRequestUrl: false, // If true, will navigate back to the original page after login.
     },
@@ -110,16 +116,20 @@ export async function getInitializedMsalInstance(): Promise<PublicClientApplicat
 // For custom APIs (like your RAG API), you'll define scopes when you expose that API in Azure AD.
 // For now, basic OpenID Connect scopes are usually enough for login and ID token.
 export const loginRequest = {
-    scopes: ['openid', 'profile', 'User.Read'] // User.Read allows fetching basic profile info
+    scopes: ['User.Read']
 };
 
 export const silentRequest = {
-    scopes: ['openid', 'profile', 'User.Read'],
+    scopes: ['openid', 'profile', 'User.Read', API_SCOPE],
     forceRefresh: false
 };
 
+export const apiRequest = {
+    scopes: [API_SCOPE] 
+};
+
 // Function to acquire token silently or with redirect
-export async function acquireToken(): Promise<AuthenticationResult | null> {
+export async function acquireToken(request: { scopes: string[] }): Promise<AuthenticationResult | null> {
     console.log("authService.acquireToken: Attempting to get initialized MSAL instance...");
     const currentMsalInstance = await getInitializedMsalInstance();
     console.log("authService.acquireToken: Got instance. Calling getAllAccounts.");
@@ -131,10 +141,11 @@ export async function acquireToken(): Promise<AuthenticationResult | null> {
     
     const account = currentMsalInstance.getActiveAccount() || accounts[0];
     console.log(`authService.acquireToken: Using account: ${account?.username}. Calling acquireTokenSilent.`);
-    const request = { scopes: ['openid', 'profile', 'User.Read'], account, forceRefresh: false };
+    
+    const silentRequest = { ...request, account, forceRefresh: false };
 
     try {
-        const tokenResponse = await currentMsalInstance.acquireTokenSilent(request);
+        const tokenResponse = await currentMsalInstance.acquireTokenSilent(silentRequest);
         console.log("authService.acquireToken: acquireTokenSilent success.");
         return tokenResponse;
     } catch (error) {
@@ -168,3 +179,10 @@ msalInstance.handleRedirectPromise()
 */
 
 console.log("authService.ts loaded. Call getInitializedMsalInstance() to init and get MSAL."); 
+console.log("API_SCOPE used for acquireToken:", API_SCOPE);
+console.log("VITE_API_SCOPE from env:", import.meta.env.VITE_API_SCOPE);
+console.log("MSAL_CLIENT_ID:", MSAL_CLIENT_ID);
+console.log("All VITE_ environment variables:", Object.keys(import.meta.env).filter(key => key.startsWith('VITE_')).reduce((obj, key) => {
+    obj[key] = import.meta.env[key];
+    return obj;
+}, {})); 

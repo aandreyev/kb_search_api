@@ -11,3 +11,4 @@ langchain-ollama
 # Removed: SQLAlchemy
 langchain-community # Contains community integrations like Supabase
 langchain-openai # Added for OpenAI LLM support 
+python-jose[cryptography] # For decoding and validating MSAL JWTs 

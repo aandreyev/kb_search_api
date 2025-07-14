@@ -5,9 +5,9 @@ from dotenv import load_dotenv
 from contextlib import asynccontextmanager
 from urllib.parse import urlparse
 from datetime import datetime # Import datetime for timestamp fields
-from typing import List, Optional, Any, Dict # For List, Optional, Any, and Dict fields
+from typing import List, Optional, Any, Dict, Union # For List, Optional, Any, and Dict fields
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel, Field
 from supabase import create_client, Client as SupabaseClient # Rename to avoid confusion
 from sqlalchemy import create_engine
@@ -26,11 +26,8 @@ from langchain_ollama.chat_models import ChatOllama
 from langchain_openai import ChatOpenAI # Import ChatOpenAI
 from langchain_community.vectorstores import SupabaseVectorStore # Corrected import
 
-# Import doppler_integration from current directory
-from doppler_integration import load_environment
-
-# Load environment variables from Doppler or fallback to .env
-load_environment()
+# Import the new security dependency
+from security import verify_token
 
 # --- Global Variables for RAG Components (initialized in lifespan) ---
 global_rag_chain = None
@@ -38,42 +35,45 @@ global_supabase_client = None # For fetching document details
 global_config = {}
 
 # --- Pydantic Models for API ---
-class ChatQueryRequest(BaseModel):
-    query: str
-    limit: Optional[int] = 10 # Default limit for results
-    # conversation_id: str | None = None # Optional for future history
-
-class ChunkSnippet(BaseModel):
-    content: str
-    similarity: float
-    chunk_index: Optional[int] = None # Optional, but good to have
-
 class SourceDocument(BaseModel):
-    id: str | int 
+    id: Union[str, int]
     original_filename: Optional[str] = None
     public_url: Optional[str] = None
     title: Optional[str] = None
-    author: Optional[List[str]] = None # Array of strings
+    author: Optional[List[str]] = None
     last_modified: Optional[datetime] = None
     created_date: Optional[datetime] = None
     file_type: Optional[str] = None
     document_summary: Optional[str] = None
-    law_area: Optional[List[str]] = None # Array of strings
+    law_area: Optional[List[str]] = None
     document_category: Optional[str] = None
     cleaned_filename: Optional[str] = None
     analysis_notes: Optional[str] = None
-    snippets: Optional[List[ChunkSnippet]] = None # Added for chunk details
 
-class SearchQueryResponse(BaseModel):
-    query: str
-    results: list[SourceDocument]
-    # We can add more details like chunk previews or similarity scores if needed
-    error: str | None = None
+class ChunkSnippet(BaseModel):
+    content: str
+    similarity: float
+    chunk_index: Optional[int] = None
+
+class SearchResult(SourceDocument):
+    max_similarity: float
+    snippets: List[ChunkSnippet]
+
 
 class ChatQueryResponse(BaseModel):
     answer: str
-    sources: list[SourceDocument]
-    error: str | None = None
+    sources: List[SourceDocument]
+    error: Optional[str] = None
+
+class SearchQueryResponse(BaseModel):
+    query: str
+    results: List[SearchResult]
+    error: Optional[str] = None
+
+class ChatQueryRequest(BaseModel):
+    query: str
+    limit: Optional[int] = 10 # Default limit for results
+    # conversation_id: str | None = None # Optional for future history
 
 class LogEntryRequest(BaseModel):
     event_type: str
@@ -231,8 +231,8 @@ async def lifespan(app: FastAPI):
                 raise RuntimeError("OPENAI_API_KEY is required for OpenAI LLM.")
             try:
                 llm = ChatOpenAI(
-                    openai_api_key=global_config["openai_api_key"],
-                    model_name=global_config["openai_model_name"]
+                    api_key=global_config["openai_api_key"],
+                    model=global_config["openai_model_name"]
                 )
                 print(f"Checking OpenAI model ({global_config['openai_model_name']}) availability...")
                 llm.invoke("Hi") # Simple test invoke
@@ -292,15 +292,18 @@ Answer:"""
                     'query_embedding': query_embedding,
                     'match_count': retrieval_limit # Pass the limit to the SQL function
                 }
+                # Call the RPC function directly
+                # Note: supabase-py's execute() can raise an APIError on failure
                 match_response = global_supabase_client.rpc(
                     'match_chunks_for_rag',
                     rpc_params
                 ).execute()
 
                 retrieved_docs = []
+                # Successful calls return data in the 'data' attribute
                 if match_response.data:
                     print(f"RPC call returned {len(match_response.data)} chunks.")
-                    # 3. Manually construct LangChain Document objects with metadata
+                    # Manually construct LangChain Document objects
                     for row in match_response.data:
                         metadata = {
                             'id': row.get('id'), # Chunk ID
@@ -308,7 +311,6 @@ Answer:"""
                             'chunk_index': row.get('chunk_index'),
                             'similarity': row.get('similarity')
                         }
-                        # Filter out None values from metadata before creating Document
                         filtered_metadata = {k: v for k, v in metadata.items() if v is not None}
                         doc = Document(
                             page_content=row.get('content', ''), 
@@ -317,8 +319,6 @@ Answer:"""
                         retrieved_docs.append(doc)
                 else:
                      print("RPC call returned no matching chunks.")
-                     if hasattr(match_response, 'error') and match_response.error:
-                          print(f"Supabase RPC error during retrieval: {match_response.error}")
                 
                 return retrieved_docs
 
@@ -326,7 +326,8 @@ Answer:"""
                 print(f"Error during manual retrieval process: {e}")
                 import traceback
                 traceback.print_exc()
-                return [] # Return empty list on error
+                # Re-raise or handle as appropriate
+                raise e
 
         # Define the chain using the manual retrieval function
         rag_processing = RunnableParallel(
@@ -382,11 +383,14 @@ app.add_middleware(
 
 # --- API Endpoints ---
 @app.post("/chat", response_model=ChatQueryResponse)
-async def chat_endpoint(request: ChatQueryRequest):
+async def chat_endpoint(
+    request: ChatQueryRequest, 
+    token_payload: dict = Depends(verify_token)
+):
     if not global_rag_chain:
         raise HTTPException(status_code=503, detail="RAG service not initialized. Please check server logs.")
     
-    print(f"Received query for RAG API: {request.query[:100]}... Retrieval Limit: {request.limit}")
+    print(f"User '{token_payload.get('name', 'Unknown')}' made request to RAG API: {request.query[:100]}...")
     try:
         # Chain now returns dict including source_documents with proper metadata
         result = global_rag_chain.invoke({"query": request.query, "limit": request.limit})
@@ -496,11 +500,11 @@ async def health_check():
     return {"status": "RAG API Service is running", "rag_initialized": global_rag_chain is not None}
 
 @app.get("/preview-pdf")
-async def preview_pdf_endpoint(url: str): # url will be the Supabase public_url
+async def preview_pdf_endpoint(url: str, token_payload: dict = Depends(verify_token)): # url will be the Supabase public_url
     if not url:
         raise HTTPException(status_code=400, detail="Missing PDF URL")
     
-    print(f"Proxying PDF from URL: {url}")
+    print(f"User '{token_payload.get('name', 'Unknown')}' requested PDF from URL: {url}")
     try:
         # Make the request to the external URL
         # Using a timeout for robustness
@@ -536,93 +540,49 @@ async def preview_pdf_endpoint(url: str): # url will be the Supabase public_url
         traceback.print_exc()
         raise HTTPException(status_code=500, detail="Error processing PDF preview")
 
+# This should now work correctly with the fixed models
 @app.post("/search", response_model=SearchQueryResponse)
-async def search_endpoint(request: ChatQueryRequest): # Uses limit from request
-    print(f"Received query for Search API: {request.query[:100]}... Limit: {request.limit}")
+async def search_endpoint(
+    request: ChatQueryRequest,
+    token_payload: dict = Depends(verify_token)
+):
+    print(f"User '{token_payload.get('name', 'Unknown')}' made request to Search API: {request.query[:100]}...")
     
-    retrieved_docs_lc = []
     try:
-        # 1. Embed the query using our custom class
+        # 1. Embed the query
         embeddings = ApiEmbeddings(global_config["embedding_service_url"], global_config["pgvector_dimension"])
         query_embedding = embeddings.embed_query(request.query)
 
-        # 2. Call the RPC function directly
-        rpc_params = {
-            'query_embedding': query_embedding,
-            'match_count': request.limit # Use limit from request
-        }
+        # 2. Call the RPC function
         if not global_supabase_client:
              raise RuntimeError("Supabase client not initialized for search endpoint.")
 
         match_response = global_supabase_client.rpc(
-            'match_chunks_for_rag', # This function returns doc_id, content, similarity etc.
-            rpc_params
+            'match_chunks_for_rag',
+            {'query_embedding': query_embedding, 'match_count': request.limit}
         ).execute()
 
+        # 3. Process the results
         if match_response.data:
-            print(f"Search RPC call returned {len(match_response.data)} chunks.")
-            # Manually construct LangChain Document objects to extract metadata easily
+            document_ids = {row['document_id'] for row in match_response.data if row.get('document_id')}
+            document_details = {}
+            if document_ids:
+                doc_response = global_supabase_client.table(global_config["documents_table"]).select("*").in_("id", list(document_ids)).execute()
+                if doc_response.data:
+                    document_details = {doc['id']: doc for doc in doc_response.data}
+
+            # Group chunks by document
+            unique_sources_dict: Dict[Union[str, int], Dict[str, Any]] = {}
             for row in match_response.data:
-                metadata = {
-                    'id': row.get('id'), # Chunk ID
-                    'document_id': row.get('document_id'),
-                    'chunk_index': row.get('chunk_index'),
-                    'similarity': row.get('similarity')
-                }
-                filtered_metadata = {k: v for k, v in metadata.items() if v is not None}
-                doc = Document( # Need to import Document from langchain_core.documents
-                    page_content=row.get('content', ''), 
-                    metadata=filtered_metadata
-                )
-                retrieved_docs_lc.append(doc)
-        else:
-             print("Search RPC call returned no matching chunks.")
-             if hasattr(match_response, 'error') and match_response.error:
-                  print(f"Supabase RPC error during search: {match_response.error}")
+                doc_id = row.get('document_id')
+                if not doc_id:
+                    continue
 
-    except ValueError as ve: # Catch specific error from embed_query
-        print(f"ValueError during Search API query embedding: {ve}")
-        return SearchQueryResponse(query=request.query, results=[], error=str(ve))
-    except ConnectionError as ce:
-        print(f"ConnectionError during Search API query embedding: {ce}")
-        return SearchQueryResponse(query=request.query, results=[], error=f"Could not connect to embedding service: {ce}")
-    except Exception as e:
-        print(f"Error processing search query in API: {e}")
-        import traceback
-        traceback.print_exc()
-        return SearchQueryResponse(query=request.query, results=[], error=f"Error processing your request: {e}")
-
-    search_results_api = []
-    if retrieved_docs_lc:
-        source_doc_ids = list(set([doc.metadata.get('document_id') for doc in retrieved_docs_lc if doc.metadata.get('document_id') is not None]))
-        document_details = {}
-        if source_doc_ids and global_supabase_client:
-            document_details = get_document_details_api(
-                global_supabase_client,
-                global_config["documents_table"],
-                source_doc_ids
-            )
-        
-        unique_sources_dict = {}
-        for doc_lc in retrieved_docs_lc: # doc_lc is a LangChain Document object for a chunk
-            doc_id = doc_lc.metadata.get('document_id')
-            similarity = doc_lc.metadata.get('similarity', 0.0)
-            chunk_content = doc_lc.page_content
-            chunk_idx = doc_lc.metadata.get('chunk_index')
-
-            if doc_id:
                 if doc_id not in unique_sources_dict:
-                    doc_info = document_details.get(doc_id, {
-                        'original_filename': f'Unknown ID {doc_id}',
-                        # Initialize all other fields to None or sensible defaults
-                        'public_url': None, 'title': None, 'author': None, 
-                        'last_modified': None, 'created_date': None, 'file_type': None,
-                        'document_summary': None, 'law_area': None, 'document_category': None,
-                        'cleaned_filename': None, 'analysis_notes': None
-                    })
+                    doc_info = document_details.get(doc_id, {})
                     unique_sources_dict[doc_id] = {
-                        "id": str(doc_id),
-                        "original_filename": doc_info.get('original_filename', f'Document ID {doc_id}'),
+                        "id": doc_id,
+                        "original_filename": doc_info.get('original_filename'),
                         "public_url": doc_info.get('public_url'),
                         "title": doc_info.get('title'),
                         "author": doc_info.get('author'),
@@ -634,43 +594,37 @@ async def search_endpoint(request: ChatQueryRequest): # Uses limit from request
                         "document_category": doc_info.get('document_category'),
                         "cleaned_filename": doc_info.get('cleaned_filename'),
                         "analysis_notes": doc_info.get('analysis_notes'),
-                        "max_similarity": 0.0, # Initialize max_similarity
-                        "snippets": [] # Initialize list for snippets
+                        "max_similarity": 0.0,
+                        "snippets": []
                     }
                 
-                # Add snippet to this document's list
-                unique_sources_dict[doc_id]["snippets"].append(
-                    ChunkSnippet(content=chunk_content, similarity=similarity, chunk_index=chunk_idx)
+                # Add snippet
+                snippet = ChunkSnippet(
+                    content=row.get('content', ''),
+                    similarity=row.get('similarity', 0.0),
+                    chunk_index=row.get('chunk_index')
                 )
-                # Update max_similarity for the document
-                if similarity > unique_sources_dict[doc_id]["max_similarity"]:
-                    unique_sources_dict[doc_id]["max_similarity"] = similarity
-        
-        # Convert to list and sort by max_similarity if desired
-        sorted_sources_data = sorted(unique_sources_dict.values(), key=lambda x: x["max_similarity"], reverse=True)
-        
-        search_results_api = []
-        for source_data in sorted_sources_data:
-            # Sort snippets within each document by similarity, highest first
-            sorted_snippets = sorted(source_data["snippets"], key=lambda s: s.similarity, reverse=True)
-            search_results_api.append(SourceDocument(
-                id=source_data["id"], 
-                original_filename=source_data["original_filename"],
-                public_url=source_data["public_url"],
-                title=source_data["title"],
-                author=source_data["author"],
-                last_modified=source_data["last_modified"],
-                created_date=source_data["created_date"],
-                file_type=source_data["file_type"],
-                document_summary=source_data["document_summary"],
-                law_area=source_data["law_area"],
-                document_category=source_data["document_category"],
-                cleaned_filename=source_data["cleaned_filename"],
-                analysis_notes=source_data["analysis_notes"],
-                snippets=sorted_snippets # Add sorted snippets
-            ))
-    
-    return SearchQueryResponse(query=request.query, results=search_results_api)
+                unique_sources_dict[doc_id]["snippets"].append(snippet)
+                
+                # Update max similarity
+                if snippet.similarity > unique_sources_dict[doc_id]["max_similarity"]:
+                    unique_sources_dict[doc_id]["max_similarity"] = snippet.similarity
+            
+            # Convert dict to list of SearchResult models
+            search_results_api = [SearchResult(**data) for data in unique_sources_dict.values()]
+            # Sort final results by max similarity
+            search_results_api.sort(key=lambda x: x.max_similarity, reverse=True)
+
+            return SearchQueryResponse(query=request.query, results=search_results_api)
+        else:
+             print("Search RPC call returned no matching chunks.")
+             return SearchQueryResponse(query=request.query, results=[])
+
+    except Exception as e:
+        print(f"Error processing search query in API: {e}")
+        import traceback
+        traceback.print_exc()
+        return SearchQueryResponse(query=request.query, results=[], error=f"Error processing your request: {e}")
 
 @app.post("/log-activity")
 async def log_activity_endpoint(log_entry: LogEntryRequest):
@@ -695,29 +649,20 @@ async def log_activity_endpoint(log_entry: LogEntryRequest):
         # Filter out None values before inserting
         log_data_to_insert = {k: v for k, v in log_data.items() if v is not None}
 
+        # The .execute() method will raise an APIError if the insert fails
         response = global_supabase_client.table("activity_logs").insert(log_data_to_insert).execute()
         
-        # For supabase-python v1.x and v2.x, .execute() on insert usually returns an APIResponse object.
-        # Successful inserts often have data in response.data (list of inserted records).
-        # Errors would be in response.error or an exception might be raised by .execute() itself on failure.
-
-        if hasattr(response, 'error') and response.error:
-            print(f"Error logging activity to Supabase: {response.error}")
-            return {"status": "logging_error", "detail": str(response.error)}
-        elif response.data: 
-            log_id = response.data[0].get('id') if response.data and len(response.data)>0 else 'N/A'
+        if response.data:
+            log_id = response.data[0].get('id', 'N/A')
             print(f"Activity logged successfully: ID {log_id}")
-            return {"status": "success", "log_id": log_id }
+            return {"status": "success", "log_id": log_id}
         else:
-            # This case might indicate success but no data returned, or an unhandled error prior to execute raising one.
-            print("Activity logging to Supabase: insert executed, no data in response and no explicit error attribute.")
-            return {"status": "success_no_data_or_unclear_error"}
+            print("Activity logging to Supabase: insert executed, but no data returned.")
+            return {"status": "success_nodata"}
 
     except Exception as e:
-        print(f"Exception during logging activity: {e}")
-        import traceback
-        traceback.print_exc()
-        # Don't raise HTTPException here to avoid breaking client flow for logging failure
+        # This will catch APIError from supabase-py and other exceptions
+        print(f"ERROR (log-activity): An exception occurred during Supabase insert. Error: {e}")
         return {"status": "logging_exception", "detail": str(e)}
 
 # --- Main Block (for running with uvicorn if desired, e.g., python main.py) ---

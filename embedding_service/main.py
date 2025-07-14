@@ -7,11 +7,11 @@ from dotenv import load_dotenv
 import torch
 from contextlib import asynccontextmanager
 
-# Import doppler_integration from current directory
-from doppler_integration import load_environment
+# # Import doppler_integration from current directory
+# from doppler_integration import load_environment
 
-# Load environment variables from Doppler or fallback to .env
-load_environment()
+# # Load environment variables from Doppler or fallback to .env
+# load_environment()
 
 # --- Configuration ---
 MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "BAAI/bge-large-en-v1.5")
