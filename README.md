@@ -43,7 +43,9 @@ graph TD
 - **Pluggable LLM**: Uses Ollama for local LLM inference, with support for OpenAI as an alternative.
 - **Vector Storage**: Utilizes Supabase with `pgvector` for efficient similarity search on document embeddings.
 - **Web Interface**: A modern and reactive search UI built with SvelteKit.
+- **Authentication**: Microsoft Entra ID (Azure AD) integration with MSAL in frontend and JWT validation in backend (see limitations below).
 - **Containerized**: Fully containerized with Docker for consistent development and easy deployment.
+- **Secret Management**: Doppler integration for secure environment variable handling.
 
 ## Technology Stack
 
@@ -92,73 +94,29 @@ cd <repository-directory>
 
 ### 2. Configure Environment Variables
 
-Create a file named `.env` in the root of the project. Copy the contents below into the file and **fill in your Supabase credentials**.
+The project uses Doppler for secret management. Install the Doppler CLI and configure it for the project (see doppler.yaml).
 
-```env
-# ==================================
-# === Supabase Configuration ===
-# ==================================
-# Found in your Supabase project's API settings
-SUPABASE_URL=
-SUPABASE_SERVICE_ROLE_KEY=
-SUPABASE_DB_PASSWORD=
+Alternatively, create a `.env` file in the root with required variables (see example in README or doppler.yaml).
 
-# Table names (defaults are provided)
-SUPABASE_DOCUMENTS_TABLE=documents
-SUPABASE_CHUNKS_TABLE=document_chunks
-
-# ==================================
-# === Service URLs & Ports ===
-# ==================================
-# URLs used by services to communicate *inside* the Docker network
-EMBEDDING_SERVICE_URL=http://embedding_service:8001
-OLLAMA_BASE_URL=http://ollama:11434
-
-# Host ports exposed on your local machine
-EMBEDDING_SERVICE_PORT_HOST=8001
-RAG_API_PORT_HOST=8002
-FRONTEND_PORT_HOST=5173
-
-# ==================================
-# === Model Configuration ===
-# ==================================
-# Embedding Service Configuration
-EMBEDDING_MODEL_NAME="BAAI/bge-large-en-v1.5"
-EMBEDDING_MODEL_DEVICE=cpu # Options: cpu, cuda, mps
-PGVECTOR_DIMENSION=1024 # Must match the dimension of the chosen embedding model
-
-# RAG Service LLM Provider (ollama or openai)
-LLM_PROVIDER=ollama
-OLLAMA_MODEL=phi3:mini # The model to use with Ollama
-
-# --- OpenAI (only needed if LLM_PROVIDER=openai) ---
-OPENAI_API_KEY=
-OPENAI_MODEL_NAME=gpt-4
-
-# =====================================================================================
-# === Vite Build-time Variables (passed as ARGs in docker-compose to search_ui) ===
-# =====================================================================================
-# These URLs are used by the frontend (in the browser) to talk to the backend.
-VITE_RAG_API_URL=http://localhost:8002
-# This is the redirect URL for MSAL authentication in a local environment.
-VITE_MSAL_REDIRECT_URI=http://localhost:5173
-```
+For authentication, ensure MSAL variables are set (VITE_MSAL_CLIENT_ID, etc.).
 
 ### 3. Build and Run the Application
 
-Open a terminal in the project root and run the following command:
+Use the startup scripts for easy launch:
 
 ```bash
-docker-compose up --build
+./start_services.sh  # Auto-detects best mode (Docker with Doppler recommended)
 ```
 
-- `--build`: This flag forces a rebuild of the service images. It's important to use this the first time you start the app or after changing any source code or `Dockerfile`.
-- The first launch will take several minutes as it needs to download base images and the specified AI/embedding models.
+See STARTUP_SCRIPTS.md for detailed options.
+
+The first run downloads models and may take time.
 
 ### 4. Access the Application
 
-Once all services are running, you can access the web interface in your browser at:
-**[http://localhost:5173](http://localhost:5173)**
+UI: http://localhost:5173 (requires login via Microsoft account).
+
+API: http://localhost:8002 (protected endpoints require valid token).
 
 ## Service Details
 
@@ -190,3 +148,24 @@ Once all services are running, you can access the web interface in your browser 
 While this setup is configured for local development, it can be adapted for production. The key differences in the provided production configuration are:
 - The `VITE_RAG_API_URL` is set to `/api`. This implies a reverse proxy is set up in front of the application that routes requests for `https://your-domain.com/api` to the RAG API service's container.
 - `VITE_MSAL_REDIRECT_URI` points to the public domain name (`https://your-domain.com`). 
+
+## Authentication
+
+The app uses Azure AD for authentication:
+- Frontend: MSAL acquires tokens with specific scopes.
+- Backend: Validates JWTs (signature, issuer, audience) but does not enforce scopes currently.
+
+For details and limitations, see [authentication_implementation.md](authentication_implementation.md).
+
+## Limitations
+- No scope checking in backend – any valid token from the app can access APIs.
+- Local dev may require manual .env if Doppler not set up.
+- First startup is slow due to model downloads.
+
+## Recent Changes
+- Extensive Azure AD authentication debugging and refactoring.
+- Doppler integration for secrets.
+- Startup scripts for flexible launching.
+- UI improvements and logging.
+
+See git log for full history. 

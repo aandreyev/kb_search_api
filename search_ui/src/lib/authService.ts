@@ -10,7 +10,7 @@ const MSAL_REDIRECT_URI = import.meta.env.VITE_MSAL_REDIRECT_URI || 'http://loca
 // This is the scope required to call your backend API.
 // You must expose this scope in your backend's Azure App Registration
 // and grant the frontend app permission to access it.
-const API_SCOPE = import.meta.env.VITE_API_SCOPE || `api://${MSAL_CLIENT_ID}/access_as_user`;
+export const API_SCOPE = import.meta.env.VITE_API_SCOPE || `api://${MSAL_CLIENT_ID}/access_as_user`;
 
 
 if (MSAL_CLIENT_ID === 'YOUR_APPLICATION_CLIENT_ID_HERE' || MSAL_TENANT_ID === 'YOUR_DIRECTORY_TENANT_ID_HERE') {

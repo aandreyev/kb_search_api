@@ -5,6 +5,7 @@
     import { logActivity, getUserLoggingInfo } from './activityLogger'; // Import logging utils
     import type { AccountInfo } from '@azure/msal-browser'; // For user type
     import { onMount } from 'svelte';
+    import { API_SCOPE } from './authService';
     // Local interface definitions
     let query: string = '';
     let results: any[] = []; // Will hold the search results (SourceDocument[])
@@ -28,6 +29,7 @@
     const API_SEARCH_ENDPOINT = `${RAG_API_BASE_URL}/search`;
     const API_CHAT_ENDPOINT = '/api/chat';     // If you add chat functionality back here
     const API_PREVIEW_PDF_ENDPOINT = `${RAG_API_BASE_URL}/preview-pdf`;
+    // const API_SCOPE = 'https://api.example.com/user_impersonation'; // Replace with your actual scope
 
     // Pagination state
     let currentPage: number = 1;
@@ -220,11 +222,35 @@
             ...userInfo 
         });
 
-        // Use the new proxied endpoint and pass the Supabase URL as a query parameter
-        previewTitle = doc.cleaned_filename || doc.title || doc.original_filename || "PDF Document";
-        previewUrl = `${API_PREVIEW_PDF_ENDPOINT}?url=${encodeURIComponent(doc.public_url)}`;
-        previewType = 'pdf';
-        showPreviewModal = true;
+        try {
+            // Acquire token
+            const tokenResponse = await acquireToken({ scopes: [import.meta.env.VITE_API_SCOPE] });
+            if (!tokenResponse || !tokenResponse.accessToken) {
+                throw new Error("Failed to acquire access token for preview.");
+            }
+            const accessToken = tokenResponse.accessToken;
+
+            // Fetch PDF with auth
+            const response = await fetch(`${API_PREVIEW_PDF_ENDPOINT}?url=${encodeURIComponent(doc.public_url)}`, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`Failed to fetch PDF: ${response.status}`);
+            }
+
+            const blob = await response.blob();
+            previewUrl = URL.createObjectURL(blob);
+            previewTitle = doc.cleaned_filename || doc.title || doc.original_filename || "PDF Document";
+            previewType = 'pdf';
+            showPreviewModal = true;
+        } catch (error) {
+            console.error('PDF preview error:', error);
+            alert('Failed to load PDF preview.');
+        }
     }
 
     async function openDocxPreview(doc: SourceDoc) {
@@ -251,9 +277,11 @@
 
     function closePreviewModal() {
         showPreviewModal = false;
-        previewUrl = null;
+        if (previewUrl) {
+            URL.revokeObjectURL(previewUrl);
+            previewUrl = null;
+        }
         previewType = null;
-        // docxHtmlContent = ""; // Not needed
     }
 
     // Handle Escape key to close modal
