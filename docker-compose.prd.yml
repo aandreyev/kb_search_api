@@ -1,0 +1,77 @@
+# Production-specific Docker Compose overrides
+# Usage: docker compose -f docker-compose.yml -f docker-compose.prd.yml up
+
+services:
+  embedding_service:
+    # Production optimizations
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
+    # Preserve existing embedding cache (update path as needed)
+    volumes:
+      - /opt/kb_search_api_models/embedding_cache:/root/.cache
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    
+  rag_api_service:
+    # Production optimizations
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        
+  frontend_nginx:
+    # Production nginx optimizations
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 128M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        
+  ollama:
+    # Production optimizations and model preservation
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G
+    # Preserve existing ollama models (update path as needed)
+    volumes:
+      - /opt/kb_search_api_models/ollama_data:/root/.ollama
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # Uncomment for GPU support if available
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu] 

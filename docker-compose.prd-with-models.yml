@@ -1,0 +1,93 @@
+# Production Docker Compose with Model Preservation
+# Usage: docker compose -f docker-compose.yml -f docker-compose.prd-with-models.yml up -d --build
+# 
+# This file preserves existing models from your current deployment:
+# - Ollama models: /home/andrew/apps/semantic_search_app/ollama_data
+# - Embedding cache: /home/andrew/apps/semantic_search_app/embedding_model_cache
+#
+# This avoids re-downloading large model files during deployments.
+
+services:
+  embedding_service:
+    # Production optimizations
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
+    # Preserve existing embedding cache from current deployment
+    volumes:
+      - /home/andrew/apps/semantic_search_app/embedding_model_cache:/root/.cache
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    
+  rag_api_service:
+    # Production optimizations
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        
+  frontend_nginx:
+    # Production nginx optimizations
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 128M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        
+  ollama:
+    # Production optimizations with model preservation
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G
+    # Preserve existing ollama models from current deployment
+    # This prevents re-downloading phi3:mini and other models
+    volumes:
+      - /home/andrew/apps/semantic_search_app/ollama_data:/root/.ollama
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # GPU support (uncomment if you have NVIDIA GPU)
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+# Optional: Named volumes for future deployments
+# If you want to move to dedicated volumes later
+volumes:
+  # Uncomment these if you want to migrate to named volumes
+  # kb_ollama_models:
+  #   external: false
+  # kb_embedding_cache:
+  #   external: false 

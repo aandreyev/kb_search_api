@@ -1,0 +1,49 @@
+setup:
+  project: sharepoint-extract
+  config: dev
+
+secrets:
+  # Supabase Configuration
+  SUPABASE_URL: ""
+  SUPABASE_SERVICE_ROLE_KEY: ""
+  SUPABASE_DB_PASSWORD: ""
+  
+  # Table names (defaults are provided)
+  SUPABASE_DOCUMENTS_TABLE: "documents"
+  SUPABASE_CHUNKS_TABLE: "document_chunks"
+  
+  # Service URLs & Ports
+  EMBEDDING_SERVICE_URL: "http://embedding_service:8001"
+  OLLAMA_BASE_URL: "http://ollama:11434"
+  
+  # Host ports exposed on your local machine
+  EMBEDDING_SERVICE_PORT_HOST: "8001"
+  RAG_API_PORT_HOST: "8002"
+  FRONTEND_PORT_HOST: "5173"
+  
+  # Model Configuration
+  EMBEDDING_MODEL_NAME: "BAAI/bge-large-en-v1.5"
+  EMBEDDING_MODEL_DEVICE: "cpu"
+  PGVECTOR_DIMENSION: "1024"
+  
+  # RAG Service LLM Provider
+  LLM_PROVIDER: "ollama"
+  OLLAMA_MODEL: "phi3:mini"
+  
+  # OpenAI (only needed if LLM_PROVIDER=openai)
+  OPENAI_API_KEY: ""
+  OPENAI_MODEL_NAME: "gpt-4"
+  
+  # Vite Build-time Variables for LOCAL DEVELOPMENT
+  VITE_RAG_API_URL: "http://localhost:8002"  # Direct API calls for dev
+  VITE_MSAL_REDIRECT_URI: "http://localhost:5173"  # Local redirect
+  
+  # MSAL Configuration (for frontend)
+  VITE_MSAL_CLIENT_ID: ""
+  VITE_MSAL_TENANT_ID: ""
+  VITE_API_SCOPE: ""
+  
+  # Backend auth configuration (mirrors frontend for consistency)
+  TENANT_ID: ""
+  CLIENT_ID: ""
+  API_SCOPE: "" 

@@ -1,0 +1,30 @@
+# Development-specific Docker Compose overrides
+# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+services:
+  embedding_service:
+    volumes:
+      # UNCOMMENT FOR LOCAL DEV HOT RELOAD
+      - ./embedding_service:/app
+    environment:
+      # Development-specific settings
+      - PYTHONUNBUFFERED=1
+    
+  rag_api_service:
+    volumes:
+      # UNCOMMENT FOR LOCAL DEV HOT RELOAD  
+      - ./rag_api_service:/app
+    environment:
+      # Development-specific settings
+      - PYTHONUNBUFFERED=1
+    
+  frontend_nginx:
+    # For development, you might want to use Vite dev server instead
+    # Comment out this service and run 'npm run dev' directly
+    environment:
+      - NODE_ENV=development
+      
+  ollama:
+    # Development might use different models or settings
+    environment:
+      - OLLAMA_DEBUG=1 
