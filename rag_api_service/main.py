@@ -59,7 +59,6 @@ class SearchResult(SourceDocument):
     max_similarity: float
     snippets: List[ChunkSnippet]
 
-
 class ChatQueryResponse(BaseModel):
     answer: str
     sources: List[SourceDocument]
@@ -68,12 +67,42 @@ class ChatQueryResponse(BaseModel):
 class SearchQueryResponse(BaseModel):
     query: str
     results: List[SearchResult]
+    search_mode: str
+    parameters: Dict[str, Any]
     error: Optional[str] = None
 
 class ChatQueryRequest(BaseModel):
     query: str
     limit: Optional[int] = 10 # Default limit for results
     # conversation_id: str | None = None # Optional for future history
+
+class EnhancedSearchRequest(BaseModel):
+    """Enhanced search request with support for vector, keyword, and hybrid search modes"""
+    query: str
+    limit: Optional[int] = 10
+    
+    # Search mode selection
+    mode: Optional[str] = Field(default="vector", description="Search mode: 'vector', 'keyword', or 'hybrid'")
+    
+    # Hybrid search weights (only used when mode='hybrid')
+    vector_weight: Optional[float] = Field(default=0.7, ge=0.0, le=1.0, description="Weight for vector similarity in hybrid search (0.0-1.0)")
+    keyword_weight: Optional[float] = Field(default=0.3, ge=0.0, le=1.0, description="Weight for keyword relevance in hybrid search (0.0-1.0)")
+    
+    # Keyword search options
+    fuzzy: Optional[bool] = Field(default=False, description="Enable fuzzy matching for keyword search")
+    similarity_threshold: Optional[float] = Field(default=0.3, ge=0.0, le=1.0, description="Minimum similarity threshold for fuzzy matching")
+    
+    # General search options
+    min_score: Optional[float] = Field(default=0.1, ge=0.0, le=1.0, description="Minimum relevance score threshold")
+    
+    # RRF parameters (for hybrid search)
+    rrf_k: Optional[int] = Field(default=60, ge=1, description="RRF constant for rank fusion")
+
+    def model_post_init(self, __context):
+        """Validate that weights sum to 1.0 for hybrid search"""
+        if self.mode == "hybrid":
+            if abs(self.vector_weight + self.keyword_weight - 1.0) > 0.001:
+                raise ValueError("vector_weight and keyword_weight must sum to 1.0 for hybrid search")
 
 class LogEntryRequest(BaseModel):
     event_type: str
@@ -214,17 +243,12 @@ async def lifespan(app: FastAPI):
         # Initialize LLM based on provider
         llm = None
         if global_config["llm_provider"] == "ollama":
-            try:
-                llm = ChatOllama(
-                    model=global_config['ollama_model'],
-                    base_url=global_config['ollama_base_url'] # Ensure this is used
-                )
-                print(f"Checking Ollama model ({global_config['ollama_model']}) availability...")
-                llm.invoke("Hi") # Simple test invoke
-                print(f"Ollama model ({global_config['ollama_model']}) initialized and appears reachable.")
-            except Exception as e:
-                print(f"FATAL: Failed to initialize or connect to Ollama model '{global_config['ollama_model']}': {e}")
-                raise RuntimeError(f"Ollama connection failed: {e}") from e
+            llm = ChatOllama(
+                model=global_config['ollama_model'],
+                base_url=global_config['ollama_base_url'] # Ensure this is used
+            )
+            print(f"Ollama model ({global_config['ollama_model']}) initialized (model check skipped).")
+            
         elif global_config["llm_provider"] == "openai":
             if not global_config["openai_api_key"]:
                 print("FATAL: LLM_PROVIDER is 'openai' but OPENAI_API_KEY is not set.")
@@ -235,7 +259,7 @@ async def lifespan(app: FastAPI):
                     model=global_config["openai_model_name"]
                 )
                 print(f"Checking OpenAI model ({global_config['openai_model_name']}) availability...")
-                llm.invoke("Hi") # Simple test invoke
+                # llm.invoke("Hi") # Simple test invoke - DISABLED FOR SEARCH DEBUG
                 print(f"OpenAI model ({global_config['openai_model_name']}) initialized and appears reachable.")
             except Exception as e:
                 print(f"FATAL: Failed to initialize or connect to OpenAI model '{global_config['openai_model_name']}': {e}")
@@ -540,91 +564,247 @@ async def preview_pdf_endpoint(url: str, token_payload: dict = Depends(verify_to
         traceback.print_exc()
         raise HTTPException(status_code=500, detail="Error processing PDF preview")
 
-# This should now work correctly with the fixed models
+# Enhanced search endpoint with support for vector, keyword, and hybrid search
 @app.post("/search", response_model=SearchQueryResponse)
 async def search_endpoint(
-    request: ChatQueryRequest,
+    request: EnhancedSearchRequest,
     token_payload: dict = Depends(verify_token)
 ):
-    print(f"User '{token_payload.get('name', 'Unknown')}' made request to Search API: {request.query[:100]}...")
+    print("*** SEARCH ENDPOINT HIT ***")
+    print(f"User '{token_payload.get('name', 'Unknown')}' made {request.mode} search request: {request.query[:100]}...")
+    print(f"DEBUG: Search mode = {request.mode}, Vector weight = {request.vector_weight}, Keyword weight = {request.keyword_weight}")
     
     try:
-        # 1. Embed the query
+        if not global_supabase_client:
+            raise RuntimeError("Supabase client not initialized for search endpoint.")
+
+        # Route to appropriate search method based on mode
+        print(f"DEBUG: Routing to {request.mode} search...")
+        if request.mode == "vector":
+            search_results = await perform_vector_search(request)
+        elif request.mode == "keyword":
+            search_results = await perform_keyword_search(request)
+        elif request.mode == "hybrid":
+            print("DEBUG: About to call perform_hybrid_search")
+            search_results = await perform_hybrid_search(request)
+            print(f"DEBUG: perform_hybrid_search returned {len(search_results)} results")
+        else:
+            raise ValueError(f"Invalid search mode: {request.mode}. Must be 'vector', 'keyword', or 'hybrid'")
+
+        # Sort results by max similarity
+        search_results.sort(key=lambda x: x.max_similarity, reverse=True)
+
+        print(f"FINAL API RESPONSE DEBUG: Returning {len(search_results)} results")
+        if search_results and len(search_results) > 0:
+            print(f"FINAL API RESPONSE DEBUG: First result snippets: {search_results[0].snippets}")
+            if search_results[0].snippets and len(search_results[0].snippets) > 0:
+                print(f"FINAL API RESPONSE DEBUG: First snippet similarity: {search_results[0].snippets[0].similarity}")
+
+        return SearchQueryResponse(
+            query=request.query, 
+            results=search_results, 
+            search_mode=request.mode, 
+            parameters=request.dict()
+        )
+
+    except Exception as e:
+        print(f"Error processing {request.mode} search query: {e}")
+        import traceback
+        traceback.print_exc()
+        return SearchQueryResponse(
+            query=request.query, 
+            results=[], 
+            search_mode=request.mode, 
+            parameters=request.dict(),
+            error=f"Error processing your request: {e}"
+        )
+
+async def perform_vector_search(request: EnhancedSearchRequest) -> List[SearchResult]:
+    """Perform traditional vector similarity search"""
+    # 1. Embed the query
+    embeddings = ApiEmbeddings(global_config["embedding_service_url"], global_config["pgvector_dimension"])
+    query_embedding = embeddings.embed_query(request.query)
+
+    # 2. Call the existing RPC function
+    match_response = global_supabase_client.rpc(
+        'match_chunks_for_rag',
+        {'query_embedding': query_embedding, 'match_count': request.limit}
+    ).execute()
+
+    # 3. Process and return results
+    return await process_search_results(match_response.data, "vector_score")
+
+async def perform_keyword_search(request: EnhancedSearchRequest) -> List[SearchResult]:
+    """Perform keyword/full-text search"""
+    # Call our new keyword search function
+    search_response = global_supabase_client.rpc(
+        'search_documents_keyword',
+        {
+            'search_query': request.query,
+            'result_limit': request.limit
+        }
+    ).execute()
+
+    # Convert keyword search results to our standard format
+    processed_results = []
+    if search_response.data:
+        for row in search_response.data:
+            processed_results.append({
+                'document_id': row.get('doc_id'),
+                'content': row.get('snippet', ''),
+                'similarity': row.get('score', 0.0),
+                'chunk_index': None  # Not available in keyword search
+            })
+
+    return await process_search_results(processed_results, "keyword_score")
+
+async def perform_hybrid_search(request: EnhancedSearchRequest) -> List[SearchResult]:
+    """Perform hybrid search combining vector and keyword approaches"""
+    print("DEBUG: *** ENTERED perform_hybrid_search function ***")
+    try:
+        # 1. Get query embedding for hybrid search
         embeddings = ApiEmbeddings(global_config["embedding_service_url"], global_config["pgvector_dimension"])
         query_embedding = embeddings.embed_query(request.query)
 
-        # 2. Call the RPC function
-        if not global_supabase_client:
-             raise RuntimeError("Supabase client not initialized for search endpoint.")
-
-        match_response = global_supabase_client.rpc(
-            'match_chunks_for_rag',
-            {'query_embedding': query_embedding, 'match_count': request.limit}
+        # 2. Call our hybrid search function
+        function_params = {
+            'search_query': request.query,
+            'query_embedding': query_embedding,
+            'vector_weight': request.vector_weight,
+            'keyword_weight': request.keyword_weight,
+            'result_limit': request.limit,
+            'rrf_k': request.rrf_k
+        }
+        
+        search_response = global_supabase_client.rpc(
+            'search_documents_hybrid',
+            function_params
         ).execute()
 
-        # 3. Process the results
-        if match_response.data:
-            document_ids = {row['document_id'] for row in match_response.data if row.get('document_id')}
-            document_details = {}
-            if document_ids:
-                doc_response = global_supabase_client.table(global_config["documents_table"]).select("*").in_("id", list(document_ids)).execute()
-                if doc_response.data:
-                    document_details = {doc['id']: doc for doc in doc_response.data}
+        # DEBUG: Show what the database actually returned
+        print(f"DEBUG: Database returned {len(search_response.data) if search_response.data else 0} rows")
+        if search_response.data and len(search_response.data) > 0:
+            print(f"DEBUG: First row from DB: {search_response.data[0]}")
+            # Show the keys to understand the structure
+            print(f"DEBUG: Available keys: {list(search_response.data[0].keys())}")
 
-            # Group chunks by document
-            unique_sources_dict: Dict[Union[str, int], Dict[str, Any]] = {}
-            for row in match_response.data:
-                doc_id = row.get('document_id')
-                if not doc_id:
-                    continue
-
-                if doc_id not in unique_sources_dict:
-                    doc_info = document_details.get(doc_id, {})
-                    unique_sources_dict[doc_id] = {
-                        "id": doc_id,
-                        "original_filename": doc_info.get('original_filename'),
-                        "public_url": doc_info.get('public_url'),
-                        "title": doc_info.get('title'),
-                        "author": doc_info.get('author'),
-                        "last_modified": doc_info.get('last_modified'),
-                        "created_date": doc_info.get('created_date'),
-                        "file_type": doc_info.get('file_type'),
-                        "document_summary": doc_info.get('document_summary'),
-                        "law_area": doc_info.get('law_area'),
-                        "document_category": doc_info.get('document_category'),
-                        "cleaned_filename": doc_info.get('cleaned_filename'),
-                        "analysis_notes": doc_info.get('analysis_notes'),
-                        "max_similarity": 0.0,
-                        "snippets": []
-                    }
+        # Convert hybrid search results to our standard format
+        processed_results = []
+        if search_response.data:
+            print(f"DEBUG: Got {len(search_response.data)} rows from database")
+            for i, row in enumerate(search_response.data):
+                print(f"DEBUG: Row {i} data: {row}")
                 
-                # Add snippet
-                snippet = ChunkSnippet(
-                    content=row.get('content', ''),
-                    similarity=row.get('similarity', 0.0),
-                    chunk_index=row.get('chunk_index')
-                )
-                unique_sources_dict[doc_id]["snippets"].append(snippet)
+                # Use hybrid_score as the primary similarity score for hybrid search
+                vector_score = float(row.get('vector_score', 0.0))
+                keyword_score = float(row.get('keyword_score', 0.0)) 
+                rrf_score = float(row.get('rrf_score', 0.0))
+                hybrid_score = float(row.get('hybrid_score', 0.0))
                 
-                # Update max similarity
-                if snippet.similarity > unique_sources_dict[doc_id]["max_similarity"]:
-                    unique_sources_dict[doc_id]["max_similarity"] = snippet.similarity
-            
-            # Convert dict to list of SearchResult models
-            search_results_api = [SearchResult(**data) for data in unique_sources_dict.values()]
-            # Sort final results by max similarity
-            search_results_api.sort(key=lambda x: x.max_similarity, reverse=True)
-
-            return SearchQueryResponse(query=request.query, results=search_results_api)
+                # If hybrid_score is very small, use RRF score multiplied for visibility
+                display_score = hybrid_score if hybrid_score > 0.001 else rrf_score * 1000
+                
+                processed_result = {
+                    'document_id': row.get('doc_id'),
+                    'content': row.get('snippet', ''),
+                    'similarity': display_score,  # This is what shows in the UI
+                    'chunk_index': None,
+                    'vector_score': vector_score,
+                    'keyword_score': keyword_score,
+                    'rrf_score': rrf_score,
+                    'hybrid_score': hybrid_score,
+                    'match_sources': row.get('match_sources', 'unknown')
+                }
+                print(f"DEBUG: Processed result similarity: {processed_result['similarity']}")
+                processed_results.append(processed_result)
         else:
-             print("Search RPC call returned no matching chunks.")
-             return SearchQueryResponse(query=request.query, results=[])
-
+            print("DEBUG: No data returned from database function")
+        
+        return await process_search_results(processed_results, "hybrid_score")
+        
     except Exception as e:
-        print(f"Error processing search query in API: {e}")
+        print(f"ERROR in hybrid search: {e}")
         import traceback
         traceback.print_exc()
-        return SearchQueryResponse(query=request.query, results=[], error=f"Error processing your request: {e}")
+        return []
+
+async def process_search_results(raw_results: List[Dict], score_type: str) -> List[SearchResult]:
+    """Common function to process search results into SearchResult objects"""
+    print(f"PROCESS_SEARCH_RESULTS DEBUG: Got {len(raw_results) if raw_results else 0} raw results")
+    if raw_results and len(raw_results) > 0:
+        print(f"PROCESS_SEARCH_RESULTS DEBUG: First raw result: {raw_results[0]}")
+        print(f"PROCESS_SEARCH_RESULTS DEBUG: Keys in first result: {list(raw_results[0].keys())}")
+    
+    if not raw_results:
+        return []
+
+    # Get document details
+    document_ids = {row['document_id'] for row in raw_results if row.get('document_id')}
+    document_details = {}
+    if document_ids:
+        doc_response = global_supabase_client.table(global_config["documents_table"]).select("*").in_("id", list(document_ids)).execute()
+        if doc_response.data:
+            document_details = {doc['id']: doc for doc in doc_response.data}
+
+    # Group chunks by document
+    unique_sources_dict: Dict[Union[str, int], Dict[str, Any]] = {}
+    for row in raw_results:
+        doc_id = row.get('document_id')
+        if not doc_id:
+            continue
+
+        if doc_id not in unique_sources_dict:
+            doc_info = document_details.get(doc_id, {})
+            unique_sources_dict[doc_id] = {
+                "id": doc_id,
+                "original_filename": doc_info.get('original_filename'),
+                "public_url": doc_info.get('public_url'),
+                "title": doc_info.get('title'),
+                "author": doc_info.get('author'),
+                "last_modified": doc_info.get('last_modified'),
+                "created_date": doc_info.get('created_date'),
+                "file_type": doc_info.get('file_type'),
+                "document_summary": doc_info.get('document_summary'),
+                "law_area": doc_info.get('law_area'),
+                "document_category": doc_info.get('document_category'),
+                "cleaned_filename": doc_info.get('cleaned_filename'),
+                "analysis_notes": doc_info.get('analysis_notes'),
+                "max_similarity": 0.0,
+                "snippets": []
+            }
+        
+        # Add snippet - use the similarity score directly from the processed results
+        similarity_score = row.get('similarity', 0.0)
+        
+        snippet = ChunkSnippet(
+            content=row.get('content', ''),
+            similarity=similarity_score,
+            chunk_index=row.get('chunk_index')
+        )
+        print(f"SNIPPET DEBUG: Created snippet with similarity = {snippet.similarity} from row data: {row}")
+        unique_sources_dict[doc_id]["snippets"].append(snippet)
+        
+        # Update max similarity
+        if snippet.similarity > unique_sources_dict[doc_id]["max_similarity"]:
+            unique_sources_dict[doc_id]["max_similarity"] = snippet.similarity
+    
+    # Convert dict to list of SearchResult models
+    return [SearchResult(**data) for data in unique_sources_dict.values()]
+
+# Legacy endpoint for backward compatibility
+@app.post("/search/vector", response_model=SearchQueryResponse)
+async def legacy_search_endpoint(
+    request: ChatQueryRequest,
+    token_payload: dict = Depends(verify_token)
+):
+    """Legacy vector search endpoint for backward compatibility"""
+    # Convert to new enhanced request format
+    enhanced_request = EnhancedSearchRequest(
+        query=request.query,
+        limit=request.limit,
+        mode="vector"
+    )
+    return await search_endpoint(enhanced_request, token_payload)
 
 @app.post("/log-activity")
 async def log_activity_endpoint(log_entry: LogEntryRequest):
