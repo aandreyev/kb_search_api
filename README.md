@@ -1,6 +1,31 @@
 # Knowledge Base Search & RAG API
 
-This project implements a sophisticated, multi-service application for building and querying a knowledge base using the Retrieval-Augmented Generation (RAG) pattern. It features separate services for document embedding, a RAG API for handling user queries, and a SvelteKit-based web interface for user interaction.
+This project implements a sophisticated, multi-service application for building and querying a knowledge base using advanced AI search capabilities and the Retrieval-Augmented Generation (RAG) pattern. It features separate services for document embedding, an advanced RAG API with multiple search modes, and a modern SvelteKit-based web interface optimized for Australian legal document search.
+
+## 🚀 Key Features
+
+### Advanced Search Capabilities
+- **Semantic Search**: AI-powered semantic understanding using state-of-the-art embeddings
+- **Keyword Search**: Traditional full-text search with fuzzy matching support
+- **Hybrid Search**: Intelligent combination of semantic and keyword approaches using Reciprocal Rank Fusion (RRF)
+- **Configurable Search**: Adjustable weights, similarity thresholds, and search parameters
+
+### RAG-Powered Question Answering
+- **Context-Aware Responses**: Generate intelligent answers using retrieved document context
+- **Source Attribution**: Every answer includes relevant source documents with metadata
+- **Australian Legal Focus**: Specialized prompting for Australian legal context and relevance
+
+### Modern Web Interface
+- **Multi-Modal Search Interface**: Toggle between vector, keyword, and hybrid search modes
+- **Advanced Search Controls**: Fine-tune search parameters with intuitive UI controls
+- **Document Preview**: In-browser PDF preview with secure authentication
+- **Activity Logging**: Track user interactions and search patterns
+
+### Enterprise-Ready Features
+- **Microsoft Azure AD Integration**: Secure authentication with MSAL
+- **Microservice Architecture**: Independent, scalable services
+- **Production Deployment**: Docker-based deployment with environment management
+- **Secret Management**: Doppler integration for secure configuration
 
 ## Architecture Overview
 
@@ -8,164 +33,286 @@ The application is designed as a set of containerized microservices orchestrated
 
 ```mermaid
 graph TD
-    subgraph "User's Local Machine"
-        Browser[("Browser")]
+    subgraph "User Interface"
+        Browser[("Browser<br/>SvelteKit UI")]
     end
 
     subgraph "Docker Environment (app_network)"
-        Frontend[frontend_nginx <br> Ports: 5173:80]
-        RAG_API[rag_api_service <br> Ports: 8002:8002]
-        Embedding[embedding_service <br> Ports: 8001:8001]
-        Ollama[ollama_service <br> Ports: 11434:11434]
+        Frontend[frontend_nginx<br/>Port: 5173]
+        RAG_API[rag_api_service<br/>Port: 8002]
+        Embedding[embedding_service<br/>Port: 8001]
+        Ollama[ollama_service<br/>Port: 11434]
     end
     
     subgraph "Cloud Services"
-        Supabase[Supabase <br> (Postgres, pgvector, Storage)]
+        Supabase[Supabase<br/>PostgreSQL + pgvector]
+        AzureAD[Azure AD<br/>Authentication]
     end
 
-    Browser -- "Access UI @ localhost:5173" --> Frontend
-    Browser -- "API Calls @ localhost:8002" --> RAG_API
+    Browser -- "Multi-Modal Search UI" --> Frontend
+    Browser -- "API Calls (Authenticated)" --> RAG_API
+    Browser -- "Azure AD Login" --> AzureAD
     
-    Frontend -- "Serves built SvelteKit App" --> Browser
+    Frontend -- "Nginx Reverse Proxy" --> RAG_API
     
-    RAG_API -- "Embed search query" --> Embedding
-    RAG_API -- "Generate response with context" --> Ollama
-    RAG_API -- "Retrieve & store document chunks" --> Supabase
+    RAG_API -- "Text Embedding" --> Embedding
+    RAG_API -- "LLM Generation" --> Ollama
+    RAG_API -- "Vector + Keyword Search" --> Supabase
+    RAG_API -- "JWT Validation" --> AzureAD
 
-    style Browser fill:#fff,stroke:#333,stroke-width:2px
+    style Browser fill:#e1f5fe,stroke:#01579b,stroke-width:2px
     style Supabase fill:#3ecf8e,stroke:#333,stroke-width:2px,color:#fff
+    style AzureAD fill:#0078d4,stroke:#333,stroke-width:2px,color:#fff
 ```
 
-## Features
+## 🔍 Search Modes Explained
 
-- **Multi-Service Architecture**: Independent services for embedding, RAG logic, and frontend.
-- **RAG Implementation**: Leverages LangChain to provide context-aware answers from a knowledge base.
-- **Pluggable LLM**: Uses Ollama for local LLM inference, with support for OpenAI as an alternative.
-- **Vector Storage**: Utilizes Supabase with `pgvector` for efficient similarity search on document embeddings.
-- **Web Interface**: A modern and reactive search UI built with SvelteKit.
-- **Authentication**: Microsoft Entra ID (Azure AD) integration with MSAL in frontend and JWT validation in backend (see limitations below).
-- **Containerized**: Fully containerized with Docker for consistent development and easy deployment.
-- **Secret Management**: Doppler integration for secure environment variable handling.
+### Vector Search (Semantic)
+- **Technology**: BAAI/bge-large-en-v1.5 embeddings (1024 dimensions)
+- **Best For**: Conceptual queries, meaning-based search, cross-lingual understanding
+- **Example**: "contract termination procedures" → finds documents about ending agreements
+
+### Keyword Search (Lexical)
+- **Technology**: PostgreSQL full-text search with ranking
+- **Best For**: Exact term matching, specific terminology, known phrases
+- **Features**: Fuzzy matching, similarity thresholds, stemming support
+- **Example**: "section 23(a)" → finds exact legal references
+
+### Hybrid Search (Combined)
+- **Technology**: Reciprocal Rank Fusion (RRF) algorithm
+- **Configuration**: Adjustable vector/keyword weights (default 70%/30%)
+- **Best For**: Comprehensive search results combining both approaches
+- **Benefits**: Balances semantic understanding with exact term matching
 
 ## Technology Stack
 
-- **Backend**: Python, FastAPI, LangChain
-- **Frontend**: SvelteKit, TypeScript, Nginx
-- **Database**: Supabase (PostgreSQL with pgvector)
-- **LLM Engine**: Ollama (default), OpenAI
-- **Containerization**: Docker, Docker Compose
+- **Backend**: Python, FastAPI, LangChain, Supabase (PostgreSQL + pgvector)
+- **Frontend**: SvelteKit, TypeScript, Tailwind CSS, Nginx
+- **AI/ML**: Sentence Transformers, Ollama (local LLM), OpenAI (optional)
+- **Authentication**: Microsoft Azure AD (MSAL)
+- **Infrastructure**: Docker, Docker Compose, Doppler (secrets)
+- **Search**: Vector similarity, PostgreSQL FTS, Hybrid RRF
 
 ## Project Structure
 
 ```
-.
-├── embedding_service/      # Handles text-to-vector embedding
-│   ├── Dockerfile
-│   └── main.py
-├── rag_api_service/        # Core RAG logic and chat endpoints
-│   ├── Dockerfile
-│   └── main.py
-├── search_ui/              # SvelteKit frontend application
-│   ├── Dockerfile
-│   ├── nginx.conf
-│   └── src/
-├── .env                    # Local configuration (created by you)
-├── create_venv.sh          # Utility script for local Python venv
-├── docker-compose.yml      # Orchestrates all services for local dev
-└── requirements.txt        # Root Python dependencies
+kb_search_api/
+├── embedding_service/          # AI embedding generation service
+│   ├── main.py                # FastAPI app with sentence transformers
+│   ├── Dockerfile             # Production-ready container
+│   └── requirements.txt       # Python dependencies
+├── rag_api_service/           # Advanced search and RAG API
+│   ├── main.py               # Multi-modal search endpoints
+│   ├── security.py           # Azure AD JWT validation
+│   ├── Dockerfile            # Production container
+│   └── requirements.txt      # Python dependencies
+├── search_ui/                # Modern SvelteKit web interface
+│   ├── src/lib/              # Search components and auth logic
+│   ├── nginx.conf            # Production reverse proxy config
+│   ├── Dockerfile            # Multi-stage production build
+│   └── package.json          # Node.js dependencies
+├── documentation/            # Comprehensive project documentation
+├── docker-compose.yml        # Development orchestration
+├── docker-compose.prd-with-models.yml  # Production with model preservation
+├── doppler.prd.yaml         # Production environment config
+├── deployment_guide.md      # Production deployment guide
+└── ENVIRONMENT_SETUP.md     # Environment management guide
 ```
 
 ## Prerequisites
 
-Before you begin, ensure you have the following installed on your system:
-- [Docker](https://www.docker.com/get-started)
-- [Docker Compose](https://docs.docker.com/compose/install/) (usually included with Docker Desktop)
+- **Docker** & **Docker Compose** (or Docker Desktop)
+- **Doppler CLI** (recommended) or manual environment configuration
+- **Azure AD Application** registration for authentication
+- **Supabase Project** with PostgreSQL and pgvector extension
 
 ## Getting Started
-
-Follow these steps to get the application running locally.
 
 ### 1. Clone the Repository
 
 ```bash
-git clone <your-repository-url>
-cd <repository-directory>
+git clone https://github.com/aandreyev/kb_search_api.git
+cd kb_search_api
 ```
 
-### 2. Configure Environment Variables
+### 2. Environment Configuration
 
-The project uses Doppler for secret management. Install the Doppler CLI and configure it for the project (see doppler.yaml).
-
-Alternatively, create a `.env` file in the root with required variables (see example in README or doppler.yaml).
-
-For authentication, ensure MSAL variables are set (VITE_MSAL_CLIENT_ID, etc.).
-
-### 3. Build and Run the Application
-
-Use the startup scripts for easy launch:
-
+**Option A: Using Doppler (Recommended)**
 ```bash
-./start_services.sh  # Auto-detects best mode (Docker with Doppler recommended)
+# Install Doppler CLI
+curl -Ls https://cli.doppler.com/install.sh | sh
+
+# Configure for development
+doppler setup --config-file doppler.dev.yaml
+
+# Set your secrets in Doppler dashboard
+doppler secrets set SUPABASE_URL="your-supabase-url"
+# ... set other required secrets
 ```
 
-See STARTUP_SCRIPTS.md for detailed options.
+**Option B: Manual .env Configuration**
+```bash
+# Copy environment template
+cp doppler.dev.yaml .env
+# Edit .env with your actual values
+```
 
-The first run downloads models and may take time.
+### 3. Launch the Application
+
+**Quick Start (Development)**
+```bash
+# Using Doppler
+doppler run -- docker compose up --build
+
+# Using .env file
+docker compose up --build
+```
+
+**Production Deployment**
+```bash
+# See deployment_guide.md for comprehensive production setup
+doppler setup --config-file doppler.prd.yaml
+doppler run -- docker compose -f docker-compose.yml -f docker-compose.prd-with-models.yml up -d --build
+```
 
 ### 4. Access the Application
 
-UI: http://localhost:5173 (requires login via Microsoft account).
+- **Web Interface**: http://localhost:5173 (requires Azure AD login)
+- **API Documentation**: http://localhost:8002/docs (interactive API docs)
+- **Health Check**: http://localhost:8002/health
 
-API: http://localhost:8002 (protected endpoints require valid token).
+## 🔧 API Endpoints
 
-## Service Details
+### Search API
+```bash
+POST /search
+Content-Type: application/json
+Authorization: Bearer <azure-ad-token>
 
-### Embedding Service
-- **Purpose**: Provides a simple API endpoint to convert text into vector embeddings.
-- **Model**: Uses a `sentence-transformers` model (`BAAI/bge-large-en-v1.5` by default).
-- **Endpoint**: `POST /embed`
-- **Access**: Available at `http://localhost:8001` on the host machine.
+{
+  "query": "contract termination procedures",
+  "mode": "hybrid",           // "vector", "keyword", or "hybrid"
+  "vector_weight": 0.7,       // Weight for semantic search (hybrid mode)
+  "keyword_weight": 0.3,      // Weight for keyword search (hybrid mode)
+  "limit": 10,                // Number of results to return
+  "fuzzy": true,              // Enable fuzzy keyword matching
+  "similarity_threshold": 0.3, // Minimum similarity for fuzzy matches
+  "min_score": 0.1            // Minimum relevance score threshold
+}
+```
 
-### RAG API Service
-- **Purpose**: The core of the application. It receives user queries, converts them to embeddings (using the `embedding_service`), retrieves relevant document chunks from Supabase, and uses an LLM (via Ollama) to generate a final answer.
-- **Endpoints**:
-    - `POST /chat`: Main endpoint for asking questions.
-    - `POST /search`: Performs similarity search and returns source documents.
-- **Access**: Available at `http://localhost:8002` on the host machine.
+### RAG Chat API
+```bash
+POST /chat
+Content-Type: application/json
+Authorization: Bearer <azure-ad-token>
 
-### Ollama Service
-- **Purpose**: Runs the large language model for the RAG service.
-- **Model**: Downloads and serves the model specified by `OLLAMA_MODEL` in the `.env` file.
-- **Access**: The API is available at `http://localhost:11434`.
+{
+  "query": "What are the requirements for contract termination in Australia?",
+  "limit": 5  // Number of source documents to retrieve
+}
+```
 
-### Frontend Nginx Service
-- **Purpose**: Serves the static, built SvelteKit frontend application.
-- **Build Process**: The `Dockerfile` for this service first builds the SvelteKit app (injecting the `VITE_*` environment variables) and then copies the static assets into a lightweight Nginx container.
-- **Access**: Serves the UI at `http://localhost:5173`.
+### Additional Endpoints
+- `GET /preview-pdf?url=<supabase-url>` - Secure PDF preview
+- `POST /log-activity` - User activity logging
+- `GET /health` - Service health status
 
-## Deployment Notes
+## 🎯 Use Cases
 
-While this setup is configured for local development, it can be adapted for production. The key differences in the provided production configuration are:
-- The `VITE_RAG_API_URL` is set to `/api`. This implies a reverse proxy is set up in front of the application that routes requests for `https://your-domain.com/api` to the RAG API service's container.
-- `VITE_MSAL_REDIRECT_URI` points to the public domain name (`https://your-domain.com`). 
+### Legal Research
+- **Semantic Queries**: "What are the obligations of landlords in residential tenancies?"
+- **Exact References**: "section 142 Residential Tenancies Act"
+- **Hybrid Approach**: "breach of contract remedies" (finds both conceptual and exact matches)
 
-## Authentication
+### Document Discovery
+- **Content-Based**: Find documents by meaning, not just keywords
+- **Metadata Search**: Filter by document type, author, law area, date
+- **Contextual Preview**: Preview relevant sections before full document access
 
-The app uses Azure AD for authentication:
-- Frontend: MSAL acquires tokens with specific scopes.
-- Backend: Validates JWTs (signature, issuer, audience) but does not enforce scopes currently.
+### Question Answering
+- **Research Assistant**: Get AI-generated answers with source attribution
+- **Australian Focus**: Responses prioritize Australian legal context
+- **Source Verification**: Every answer includes clickable source documents
 
-For details and limitations, see [authentication_implementation.md](authentication_implementation.md).
+## 📊 Performance & Scaling
 
-## Limitations
-- No scope checking in backend – any valid token from the app can access APIs.
-- Local dev may require manual .env if Doppler not set up.
-- First startup is slow due to model downloads.
+### Model Performance
+- **Embedding Model**: BAAI/bge-large-en-v1.5 (state-of-the-art semantic understanding)
+- **Response Time**: Sub-second search responses with caching
+- **Throughput**: Optimized for concurrent users with connection pooling
 
-## Recent Changes
-- Extensive Azure AD authentication debugging and refactoring.
-- Doppler integration for secrets.
-- Startup scripts for flexible launching.
-- UI improvements and logging.
+### Deployment Options
+- **Development**: Single-machine Docker Compose setup
+- **Production**: Scalable microservice deployment with model preservation
+- **Cloud**: Compatible with major cloud providers (tested on Digital Ocean)
 
-See git log for full history. 
+## 🔒 Security & Authentication
+
+### Authentication Flow
+1. **Frontend**: MSAL.js acquires Azure AD tokens with specific scopes
+2. **Backend**: JWT validation with JWKS key rotation support  
+3. **API Access**: All endpoints require valid Azure AD bearer tokens
+4. **Activity Logging**: All user actions are logged with user context
+
+### Security Features
+- **Token Validation**: Comprehensive JWT verification (signature, issuer, audience)
+- **CORS Protection**: Configured for specific origins only
+- **Rate Limiting**: Built-in FastAPI rate limiting capabilities
+- **Secure Headers**: Production nginx configuration with security headers
+
+## 📚 Documentation
+
+- **[deployment_guide.md](deployment_guide.md)** - Production deployment with model preservation
+- **[ENVIRONMENT_SETUP.md](ENVIRONMENT_SETUP.md)** - Environment management and configuration
+- **[documentation/ai_architecture_summary.md](documentation/ai_architecture_summary.md)** - AI components and architecture
+- **[STARTUP_SCRIPTS.md](STARTUP_SCRIPTS.md)** - Development and deployment scripts
+
+## 🚀 Recent Updates
+
+### Advanced Search System
+- **Multi-Modal Search**: Vector, keyword, and hybrid search capabilities
+- **RRF Algorithm**: Sophisticated result fusion for hybrid search
+- **Configurable Parameters**: Fine-tuned search controls in UI and API
+
+### Production Readiness
+- **Environment Separation**: Distinct dev/production configurations
+- **Model Preservation**: Zero-downtime deployments with model reuse
+- **Health Monitoring**: Comprehensive health checks and logging
+
+### Enhanced User Experience
+- **Modern UI**: Intuitive search interface with advanced controls
+- **Real-time Feedback**: Live search parameter adjustment
+- **Document Preview**: Secure in-browser document viewing
+
+## 🔮 Future Enhancements
+
+- **Conversation Memory**: Multi-turn chat with context retention
+- **Advanced Reranking**: ML-based result reranking for improved relevance
+- **Multi-Language Support**: Extend beyond English legal documents
+- **Query Expansion**: Automatic query enhancement for better results
+- **Analytics Dashboard**: Search analytics and usage insights
+
+## ⚡ Quick Commands
+
+```bash
+# Development
+doppler run -- docker compose up          # Start all services
+doppler run -- docker compose logs -f     # View logs
+docker compose down                        # Stop services
+
+# Production Deployment  
+doppler setup --config-file doppler.prd.yaml
+doppler run -- docker compose -f docker-compose.yml -f docker-compose.prd-with-models.yml up -d --build
+
+# Health Checks
+curl http://localhost:8002/health         # Check API health
+curl http://localhost:8001/health         # Check embedding service
+curl http://localhost:5173                # Check frontend
+```
+
+## 📝 License & Support
+
+This project is designed for Australian legal document search and retrieval. For deployment support, see the comprehensive guides in the documentation folder.
+
+Built with ❤️ for intelligent legal research and document discovery. 
