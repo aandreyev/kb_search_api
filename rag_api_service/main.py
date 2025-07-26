@@ -572,7 +572,7 @@ async def search_endpoint(
 ):
     print("*** SEARCH ENDPOINT HIT ***")
     print(f"User '{token_payload.get('name', 'Unknown')}' made {request.mode} search request: {request.query[:100]}...")
-    print(f"DEBUG: Search mode = {request.mode}, Vector weight = {request.vector_weight}, Keyword weight = {request.keyword_weight}")
+    print(f"DEBUG: Search mode = {request.mode}, Vector weight = {request.vector_weight}, Keyword weight = {request.keyword_weight}, Min score = {request.min_score}")
     
     try:
         if not global_supabase_client:
@@ -632,7 +632,7 @@ async def perform_vector_search(request: EnhancedSearchRequest) -> List[SearchRe
     ).execute()
 
     # 3. Process and return results
-    return await process_search_results(match_response.data, "vector_score")
+    return await process_search_results(match_response.data, "vector_score", request.min_score)
 
 async def perform_keyword_search(request: EnhancedSearchRequest) -> List[SearchResult]:
     """Perform keyword/full-text search"""
@@ -656,7 +656,7 @@ async def perform_keyword_search(request: EnhancedSearchRequest) -> List[SearchR
                 'chunk_index': None  # Not available in keyword search
             })
 
-    return await process_search_results(processed_results, "keyword_score")
+    return await process_search_results(processed_results, "keyword_score", request.min_score)
 
 async def perform_hybrid_search(request: EnhancedSearchRequest) -> List[SearchResult]:
     """Perform hybrid search combining vector and keyword approaches"""
@@ -720,7 +720,7 @@ async def perform_hybrid_search(request: EnhancedSearchRequest) -> List[SearchRe
         else:
             print("DEBUG: No data returned from database function")
         
-        return await process_search_results(processed_results, "hybrid_score")
+        return await process_search_results(processed_results, "hybrid_score", request.min_score)
         
     except Exception as e:
         print(f"ERROR in hybrid search: {e}")
@@ -728,7 +728,7 @@ async def perform_hybrid_search(request: EnhancedSearchRequest) -> List[SearchRe
         traceback.print_exc()
         return []
 
-async def process_search_results(raw_results: List[Dict], score_type: str) -> List[SearchResult]:
+async def process_search_results(raw_results: List[Dict], score_type: str, min_score: float = 0.0) -> List[SearchResult]:
     """Common function to process search results into SearchResult objects"""
     print(f"PROCESS_SEARCH_RESULTS DEBUG: Got {len(raw_results) if raw_results else 0} raw results")
     if raw_results and len(raw_results) > 0:
@@ -737,6 +737,16 @@ async def process_search_results(raw_results: List[Dict], score_type: str) -> Li
     
     if not raw_results:
         return []
+
+    # Filter results by minimum score threshold
+    if min_score > 0.0:
+        filtered_results = [row for row in raw_results if row.get('similarity', 0.0) >= min_score]
+        print(f"MIN_SCORE FILTER DEBUG: Filtered {len(raw_results)} -> {len(filtered_results)} results (min_score={min_score})")
+        raw_results = filtered_results
+        
+        if not raw_results:
+            print(f"MIN_SCORE FILTER DEBUG: No results above threshold {min_score}")
+            return []
 
     # Get document details
     document_ids = {row['document_id'] for row in raw_results if row.get('document_id')}
