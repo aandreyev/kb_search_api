@@ -1,0 +1,3 @@
+Need to check that search parameters are being passed to the database and used in search.
+No sure that relevance threshold is being applied.
+Need to check that fuzzy search is switching on and off.
