@@ -573,6 +573,7 @@ async def search_endpoint(
     print("*** SEARCH ENDPOINT HIT ***")
     print(f"User '{token_payload.get('name', 'Unknown')}' made {request.mode} search request: {request.query[:100]}...")
     print(f"DEBUG: Search mode = {request.mode}, Vector weight = {request.vector_weight}, Keyword weight = {request.keyword_weight}, Min score = {request.min_score}")
+    print(f"DEBUG: Fuzzy = {request.fuzzy}, Similarity threshold = {request.similarity_threshold}")
     
     try:
         if not global_supabase_client:
@@ -601,83 +602,204 @@ async def search_endpoint(
                 print(f"FINAL API RESPONSE DEBUG: First snippet similarity: {search_results[0].snippets[0].similarity}")
 
         return SearchQueryResponse(
-            query=request.query, 
-            results=search_results, 
-            search_mode=request.mode, 
+            query=request.query,
+            results=search_results,
+            search_mode=request.mode,
             parameters=request.dict()
         )
 
     except Exception as e:
-        print(f"Error processing {request.mode} search query: {e}")
+        print(f"ERROR in search endpoint: {e}")
         import traceback
         traceback.print_exc()
         return SearchQueryResponse(
-            query=request.query, 
-            results=[], 
-            search_mode=request.mode, 
+            query=request.query,
+            results=[],
+            search_mode=request.mode,
             parameters=request.dict(),
-            error=f"Error processing your request: {e}"
+            error=f"Search failed: {str(e)}"
         )
 
 async def perform_vector_search(request: EnhancedSearchRequest) -> List[SearchResult]:
     """Perform traditional vector similarity search"""
-    # 1. Embed the query
-    embeddings = ApiEmbeddings(global_config["embedding_service_url"], global_config["pgvector_dimension"])
-    query_embedding = embeddings.embed_query(request.query)
+    print("DEBUG: *** ENTERED perform_vector_search function ***")
+    try:
+        # 1. Embed the query
+        embeddings = ApiEmbeddings(global_config["embedding_service_url"], global_config["pgvector_dimension"])
+        query_embedding = embeddings.embed_query(request.query)
 
-    # 2. Call the existing RPC function
-    match_response = global_supabase_client.rpc(
-        'match_chunks_for_rag',
-        {'query_embedding': query_embedding, 'match_count': request.limit}
-    ).execute()
+        # 2. Call the existing RPC function
+        match_response = global_supabase_client.rpc(
+            'match_chunks_for_rag',
+            {'query_embedding': query_embedding, 'match_count': request.limit}
+        ).execute()
 
-    # 3. Process and return results
-    return await process_search_results(match_response.data, "vector_score", request.min_score)
+        # DEBUG: Show what the database actually returned
+        print(f"DEBUG: Database returned {len(match_response.data) if match_response.data else 0} rows")
+        if match_response.data and len(match_response.data) > 0:
+            print(f"DEBUG: First row from DB: {match_response.data[0]}")
+            print(f"DEBUG: Available keys: {list(match_response.data[0].keys())}")
+
+        # Convert vector search results to our standard format with enhanced score processing
+        processed_results = []
+        if match_response.data:
+            print(f"DEBUG: Got {len(match_response.data)} rows from database")
+            for i, row in enumerate(match_response.data):
+                print(f"DEBUG: Row {i} data: {row}")
+                
+                # Extract and process vector similarity score
+                vector_score = float(row.get('similarity', 0.0))
+                
+                # Apply score transformation for better visibility (similar to hybrid search)
+                display_score = vector_score
+                if vector_score < 0.001:
+                    display_score = vector_score * 1000  # Scale up very small scores for visibility
+                
+                processed_result = {
+                    'document_id': row.get('document_id'),
+                    'content': row.get('content', ''),
+                    'similarity': display_score,  # This is what shows in the UI
+                    'chunk_index': row.get('chunk_index'),
+                    'vector_score': vector_score,
+                    'match_sources': 'vector'
+                }
+                print(f"DEBUG: Processed result similarity: {processed_result['similarity']}")
+                processed_results.append(processed_result)
+        else:
+            print("DEBUG: No data returned from database function")
+
+        # 3. Process and return results
+        return await process_search_results(processed_results, "vector_score", request.min_score)
+        
+    except Exception as e:
+        print(f"ERROR in vector search: {e}")
+        import traceback
+        traceback.print_exc()
+        return []
 
 async def perform_keyword_search(request: EnhancedSearchRequest) -> List[SearchResult]:
-    """Perform keyword/full-text search"""
-    # Call our new keyword search function
-    search_response = global_supabase_client.rpc(
-        'search_documents_keyword',
-        {
-            'search_query': request.query,
-            'result_limit': request.limit
-        }
-    ).execute()
+    """Perform keyword/full-text search with enhanced fuzzy matching"""
+    print("DEBUG: *** ENTERED perform_keyword_search function ***")
+    print(f"DEBUG: Fuzzy={request.fuzzy}, Similarity Threshold={request.similarity_threshold}")
+    
+    try:
+        # Call enhanced keyword search function with fuzzy parameters
+        search_response = global_supabase_client.rpc(
+            'search_documents_keyword_enhanced',
+            {
+                'search_query': request.query,
+                'result_limit': request.limit,
+                'fuzzy_enabled': request.fuzzy,
+                'similarity_threshold': request.similarity_threshold
+            }
+        ).execute()
 
-    # Convert keyword search results to our standard format
-    processed_results = []
-    if search_response.data:
-        for row in search_response.data:
-            processed_results.append({
-                'document_id': row.get('doc_id'),
-                'content': row.get('snippet', ''),
-                'similarity': row.get('score', 0.0),
-                'chunk_index': None  # Not available in keyword search
-            })
+        # DEBUG: Show what the database actually returned
+        print(f"DEBUG: Database returned {len(search_response.data) if search_response.data else 0} rows")
+        if search_response.data and len(search_response.data) > 0:
+            print(f"DEBUG: First row from DB: {search_response.data[0]}")
+            print(f"DEBUG: Available keys: {list(search_response.data[0].keys())}")
 
-    return await process_search_results(processed_results, "keyword_score", request.min_score)
+        # Convert keyword search results to our standard format with NORMALIZED scores
+        processed_results = []
+        if search_response.data:
+            print(f"DEBUG: Got {len(search_response.data)} rows from database")
+            
+            for i, row in enumerate(search_response.data):
+                print(f"DEBUG: Row {i} data: {row}")
+                
+                # Extract NORMALIZED score from database (already in 0.0-1.0 range)
+                normalized_score = float(row.get('score', 0.0))
+                score_type = row.get('score_type', 'unknown')
+                
+                # NO SCORE TRANSFORMATION NEEDED - scores are already normalized!
+                display_score = normalized_score
+                
+                processed_result = {
+                    'document_id': row.get('doc_id'),
+                    'content': row.get('snippet', ''),
+                    'similarity': display_score,  # Normalized score (0.0-1.0)
+                    'chunk_index': None,  # Not available in keyword search
+                    'keyword_score': normalized_score,
+                    'score_type': score_type,  # Track scoring method for transparency
+                    'match_sources': row.get('match_sources', 'keyword')  # Use DB value
+                }
+                print(f"DEBUG: Processed result similarity: {processed_result['similarity']} (type: {score_type})")
+                processed_results.append(processed_result)
+        else:
+            print("DEBUG: No data returned from database function")
+
+        return await process_search_results(processed_results, "keyword_score", request.min_score)
+        
+    except Exception as e:
+        # Fallback to original function if enhanced function doesn't exist yet
+        if "Could not find the function" in str(e):
+            print("DEBUG: Enhanced function not found, falling back to original")
+            return await perform_keyword_search_fallback(request)
+        else:
+            print(f"ERROR in keyword search: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
+
+async def perform_keyword_search_fallback(request: EnhancedSearchRequest) -> List[SearchResult]:
+    """Fallback to original keyword search when enhanced function is not available"""
+    print("DEBUG: Using original keyword search function")
+    
+    try:
+        search_response = global_supabase_client.rpc(
+            'search_documents_keyword',
+            {
+                'search_query': request.query,
+                'result_limit': request.limit
+            }
+        ).execute()
+
+        processed_results = []
+        if search_response.data:
+            for row in search_response.data:
+                keyword_score = float(row.get('score', 0.0))
+                display_score = keyword_score if keyword_score >= 0.001 else keyword_score * 1000
+                
+                processed_results.append({
+                    'document_id': row.get('doc_id'),
+                    'content': row.get('snippet', ''),
+                    'similarity': display_score,
+                    'chunk_index': None,
+                    'keyword_score': keyword_score,
+                    'match_sources': 'keyword'
+                })
+
+        return await process_search_results(processed_results, "keyword_score", request.min_score)
+        
+    except Exception as e:
+        print(f"ERROR in fallback keyword search: {e}")
+        return []
 
 async def perform_hybrid_search(request: EnhancedSearchRequest) -> List[SearchResult]:
-    """Perform hybrid search combining vector and keyword approaches"""
+    """Perform hybrid search combining vector and keyword approaches with enhanced fuzzy matching"""
     print("DEBUG: *** ENTERED perform_hybrid_search function ***")
+    print(f"DEBUG: Fuzzy={request.fuzzy}, Similarity Threshold={request.similarity_threshold}")
+    
     try:
         # 1. Get query embedding for hybrid search
         embeddings = ApiEmbeddings(global_config["embedding_service_url"], global_config["pgvector_dimension"])
         query_embedding = embeddings.embed_query(request.query)
 
-        # 2. Call our hybrid search function
+        # 2. Call enhanced hybrid search function with fuzzy parameters
         function_params = {
             'search_query': request.query,
             'query_embedding': query_embedding,
             'vector_weight': request.vector_weight,
             'keyword_weight': request.keyword_weight,
             'result_limit': request.limit,
-            'rrf_k': request.rrf_k
+            'rrf_k': request.rrf_k,
+            'fuzzy_enabled': request.fuzzy,
+            'similarity_threshold': request.similarity_threshold
         }
         
         search_response = global_supabase_client.rpc(
-            'search_documents_hybrid',
+            'search_documents_hybrid_enhanced',
             function_params
         ).execute()
 
@@ -692,30 +814,33 @@ async def perform_hybrid_search(request: EnhancedSearchRequest) -> List[SearchRe
         processed_results = []
         if search_response.data:
             print(f"DEBUG: Got {len(search_response.data)} rows from database")
+            
             for i, row in enumerate(search_response.data):
                 print(f"DEBUG: Row {i} data: {row}")
                 
-                # Use hybrid_score as the primary similarity score for hybrid search
+                # Use NORMALIZED hybrid_score as the primary similarity score
                 vector_score = float(row.get('vector_score', 0.0))
                 keyword_score = float(row.get('keyword_score', 0.0)) 
                 rrf_score = float(row.get('rrf_score', 0.0))
                 hybrid_score = float(row.get('hybrid_score', 0.0))
+                score_type = row.get('score_type', 'hybrid')
                 
-                # If hybrid_score is very small, use RRF score multiplied for visibility
-                display_score = hybrid_score if hybrid_score > 0.001 else rrf_score * 1000
+                # NO SCORE TRANSFORMATION NEEDED - scores are already normalized!
+                display_score = hybrid_score
                 
                 processed_result = {
                     'document_id': row.get('doc_id'),
                     'content': row.get('snippet', ''),
-                    'similarity': display_score,  # This is what shows in the UI
+                    'similarity': display_score,  # Normalized hybrid score (0.0-1.0)
                     'chunk_index': None,
-                    'vector_score': vector_score,
-                    'keyword_score': keyword_score,
-                    'rrf_score': rrf_score,
-                    'hybrid_score': hybrid_score,
-                    'match_sources': row.get('match_sources', 'unknown')
+                    'vector_score': vector_score,      # Component score (0.0-1.0)
+                    'keyword_score': keyword_score,    # Component score (0.0-1.0)
+                    'rrf_score': rrf_score,           # Component score (0.0-1.0)
+                    'hybrid_score': hybrid_score,     # Final combined score (0.0-1.0)
+                    'score_type': score_type,         # Track scoring method
+                    'match_sources': row.get('match_sources', 'unknown')  # Use DB value
                 }
-                print(f"DEBUG: Processed result similarity: {processed_result['similarity']}")
+                print(f"DEBUG: Processed result similarity: {processed_result['similarity']} (type: {score_type}, sources: {processed_result['match_sources']})")
                 processed_results.append(processed_result)
         else:
             print("DEBUG: No data returned from database function")
@@ -723,7 +848,64 @@ async def perform_hybrid_search(request: EnhancedSearchRequest) -> List[SearchRe
         return await process_search_results(processed_results, "hybrid_score", request.min_score)
         
     except Exception as e:
-        print(f"ERROR in hybrid search: {e}")
+        # Fallback to original function if enhanced function doesn't exist yet
+        if "Could not find the function" in str(e):
+            print("DEBUG: Enhanced hybrid function not found, falling back to original")
+            return await perform_hybrid_search_fallback(request)
+        else:
+            print(f"ERROR in hybrid search: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
+
+async def perform_hybrid_search_fallback(request: EnhancedSearchRequest) -> List[SearchResult]:
+    """Fallback to original hybrid search when enhanced function is not available"""
+    print("DEBUG: Using original hybrid search function")
+    
+    try:
+        embeddings = ApiEmbeddings(global_config["embedding_service_url"], global_config["pgvector_dimension"])
+        query_embedding = embeddings.embed_query(request.query)
+
+        function_params = {
+            'search_query': request.query,
+            'query_embedding': query_embedding,
+            'vector_weight': request.vector_weight,
+            'keyword_weight': request.keyword_weight,
+            'result_limit': request.limit,
+            'rrf_k': request.rrf_k
+        }
+        
+        search_response = global_supabase_client.rpc(
+            'search_documents_hybrid',
+            function_params
+        ).execute()
+
+        processed_results = []
+        if search_response.data:
+            for row in search_response.data:
+                vector_score = float(row.get('vector_score', 0.0))
+                keyword_score = float(row.get('keyword_score', 0.0)) 
+                rrf_score = float(row.get('rrf_score', 0.0))
+                hybrid_score = float(row.get('hybrid_score', 0.0))
+                
+                display_score = hybrid_score if hybrid_score > 0.001 else rrf_score * 1000
+                
+                processed_results.append({
+                    'document_id': row.get('doc_id'),
+                    'content': row.get('snippet', ''),
+                    'similarity': display_score,
+                    'chunk_index': None,
+                    'vector_score': vector_score,
+                    'keyword_score': keyword_score,
+                    'rrf_score': rrf_score,
+                    'hybrid_score': hybrid_score,
+                    'match_sources': row.get('match_sources', 'unknown')
+                })
+
+        return await process_search_results(processed_results, "hybrid_score", request.min_score)
+        
+    except Exception as e:
+        print(f"ERROR in fallback hybrid search: {e}")
         import traceback
         traceback.print_exc()
         return []
